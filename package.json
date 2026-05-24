@@ -1,0 +1,22 @@
+{
+  "name": "mexc-trading-bot",
+  "version": "2.0.0",
+  "description": "MEXC spot trading bot — MCP servers + monitoring dashboard",
+  "type": "module",
+  "main": "monitoring-server.js",
+  "scripts": {
+    "monitor": "node monitoring-server.js",
+    "mcp":     "node mexc_mcp_server.js",
+    "mcp-js":  "node mexc_mcp.js",
+    "check":   "node quick_check.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ccxt":                      "^4.3.0",
+    "dotenv":                    "^16.0.0",
+    "express":                   "^4.19.0",
+    "socket.io":                 "^4.7.0",
+    "express-basic-auth":        "^1.2.1",
+    "node-cron":                 "^3.0.3"
+  }
+}

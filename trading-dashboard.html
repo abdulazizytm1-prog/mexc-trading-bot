@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MEXC Trading Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0b0f1a;
+    --surface:  #111827;
+    --card:     #161f2e;
+    --border:   #1e2d42;
+    --text:     #d1dbe8;
+    --muted:    #4e6070;
+    --accent:   #3b82f6;
+    --green:    #10b981;
+    --red:      #ef4444;
+    --yellow:   #f59e0b;
+    --green-bg: rgba(16,185,129,0.08);
+    --red-bg:   rgba(239,68,68,0.08);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-left  { display: flex; align-items: center; gap: 14px; }
+  .header-title { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: #fff; }
+  .header-title span { color: var(--accent); }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+    animation: none; flex-shrink: 0;
+  }
+  .status-dot.live { background: var(--green); animation: pulse 2s infinite; }
+  .status-dot.error { background: var(--red); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  .status-label { color: var(--muted); font-size: 11px; }
+  .status-label.live { color: var(--green); }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .last-update  { color: var(--muted); font-size: 11px; }
+  .btn {
+    padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 11px;
+    font-family: inherit; transition: border-color 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-accent:hover { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .creds-badge {
+    font-size: 10px; padding: 3px 8px; border-radius: 3px;
+    background: var(--red-bg); color: var(--red); border: 1px solid rgba(239,68,68,0.3);
+  }
+  .creds-badge.ok { background: var(--green-bg); color: var(--green); border-color: rgba(16,185,129,0.3); }
+
+  /* ── Layout ────────────────────────────────────────────────── */
+  main { padding: 16px 20px; max-width: 1600px; margin: 0 auto; }
+
+  /* ── Metric cards ──────────────────────────────────────────── */
+  .cards-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .card-label { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+  .card-value { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+  .card-sub   { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .card-sub .pos { color: var(--green); }
+  .card-sub .neg { color: var(--red);   }
+  .card-value.pos { color: var(--green); }
+  .card-value.neg { color: var(--red);   }
+
+  /* ── Section titles ────────────────────────────────────────── */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .section-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .section-count {
+    font-size: 10px; padding: 2px 7px; border-radius: 10px;
+    background: var(--border); color: var(--muted);
+  }
+
+  /* ── Tables ─────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    background: var(--surface);
+    color: var(--muted); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 600;
+    padding: 9px 12px; text-align: left; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(59,130,246,0.04); }
+  td { padding: 9px 12px; white-space: nowrap; }
+  .no-data td { color: var(--muted); text-align: center; padding: 24px; }
+
+  .tag {
+    display: inline-block; padding: 2px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  }
+  .tag-buy  { background: var(--green-bg); color: var(--green); }
+  .tag-sell { background: var(--red-bg);   color: var(--red);   }
+  .tag-open { background: rgba(59,130,246,0.1); color: var(--accent); }
+  .tag-closed { background: var(--border); color: var(--muted); }
+
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red);   }
+
+  /* ── Charts row ─────────────────────────────────────────────── */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .chart-card canvas { display: block; }
+
+  /* ── Risk metrics row ───────────────────────────────────────── */
+  .risk-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .risk-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; text-align: center;
+  }
+  .risk-label { color: var(--muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .risk-value { font-size: 16px; font-weight: 700; color: #fff; }
+
+  /* ── Trade filter bar ───────────────────────────────────────── */
+  .filter-bar { display: flex; gap: 8px; align-items: center; }
+  .filter-input {
+    background: var(--card); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-family: inherit; font-size: 11px;
+    padding: 4px 10px; outline: none;
+  }
+  .filter-input:focus { border-color: var(--accent); }
+  select.filter-input option { background: var(--card); }
+
+  /* ── Error banner ────────────────────────────────────────────── */
+  .error-banner {
+    display: none; background: var(--red-bg); border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;
+    color: var(--red); font-size: 12px;
+  }
+  .error-banner.visible { display: block; }
+
+  @media (max-width: 1100px) {
+    .cards-row { grid-template-columns: repeat(2, 1fr); }
+    .risk-row  { grid-template-columns: repeat(3, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .cards-row { grid-template-columns: 1fr; }
+    .risk-row  { grid-template-columns: repeat(2, 1fr); }
+    header { flex-wrap: wrap; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-left">
+    <div class="status-dot" id="statusDot"></div>
+    <div>
+      <div class="header-title">MEXC <span>Trading Monitor</span></div>
+      <div class="status-label" id="statusLabel">Connecting…</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="creds-badge" id="credsBadge">No credentials</span>
+    <span class="last-update" id="lastUpdate">—</span>
+    <button class="btn" onclick="exportCSV()">⬇ CSV</button>
+    <button class="btn btn-accent" onclick="forceRefresh()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- ── Metric cards ─────────────────────────────────────────────────────── -->
+  <div class="cards-row">
+    <div class="card">
+      <div class="card-label">USDT Balance</div>
+      <div class="card-value" id="cardBalance">—</div>
+      <div class="card-sub" id="cardEquity">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Today P&amp;L</div>
+      <div class="card-value" id="cardTodayPnl">—</div>
+      <div class="card-sub" id="cardTodayStats">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Win Rate</div>
+      <div class="card-value" id="cardWinRate">—</div>
+      <div class="card-sub" id="cardWinSub">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Total P&amp;L</div>
+      <div class="card-value" id="cardTotalPnl">—</div>
+      <div class="card-sub" id="cardTotalSub">—</div>
+    </div>
+  </div>
+
+  <!-- ── Risk metrics row ─────────────────────────────────────────────────── -->
+  <div class="risk-row">
+    <div class="risk-card">
+      <div class="risk-label">Max Drawdown</div>
+      <div class="risk-value" id="riskDD">—</div>
+    </div>
+    <div class="risk-card">
+      <div class="risk-label">Sharpe Ratio</div>
+      <div class="risk-value" id="riskSharpe">—</div>
+    </div>
+    <div class="risk-card">
+      <div class="risk-label">Profit Factor</div>
+      <div class="risk-value" id="riskPF">—</div>
+    </div>
+    <div class="risk-card">
+      <div class="risk-label">Avg Win</div>
+      <div class="risk-value pnl-pos" id="riskAvgWin">—</div>
+    </div>
+    <div class="risk-card">
+      <div class="risk-label">Avg Loss</div>
+      <div class="risk-value pnl-neg" id="riskAvgLoss">—</div>
+    </div>
+    <div class="risk-card">
+      <div class="risk-label">Total Trades</div>
+      <div class="risk-value" id="riskTrades">—</div>
+    </div>
+  </div>
+
+  <!-- ── Open Positions ───────────────────────────────────────────────────── -->
+  <div class="section-header">
+    <span class="section-title">Open Positions</span>
+    <span class="section-count" id="posCount">0</span>
+  </div>
+  <div class="table-wrap">
+    <table id="posTable">
+      <thead>
+        <tr>
+          <th>Symbol</th><th>Qty</th><th>Entry Price</th><th>Current Price</th>
+          <th>Cost Basis</th><th>Current Value</th><th>P&amp;L (USDT)</th><th>P&amp;L %</th>
+        </tr>
+      </thead>
+      <tbody id="posBody">
+        <tr class="no-data"><td colspan="8">No open positions</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Charts ───────────────────────────────────────────────────────────── -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="section-header" style="margin-bottom:12px">
+        <span class="section-title">Equity Curve</span>
+      </div>
+      <canvas id="equityChart" height="140"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="section-header" style="margin-bottom:12px">
+        <span class="section-title">Daily Returns %</span>
+      </div>
+      <canvas id="returnsChart" height="140"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Trade History ────────────────────────────────────────────────────── -->
+  <div class="section-header">
+    <span class="section-title">Trade History</span>
+    <div class="filter-bar">
+      <input class="filter-input" id="filterSymbol" placeholder="Symbol…" oninput="renderTrades()" style="width:100px">
+      <select class="filter-input" id="filterStatus" onchange="renderTrades()">
+        <option value="">All</option>
+        <option value="OPEN">Open</option>
+        <option value="CLOSED">Closed</option>
+      </select>
+      <select class="filter-input" id="filterSide" onchange="renderTrades()">
+        <option value="">All sides</option>
+        <option value="BUY">BUY</option>
+        <option value="SELL">SELL</option>
+      </select>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Symbol</th><th>Side</th><th>Qty</th>
+          <th>Entry</th><th>Exit</th><th>P&amp;L (USDT)</th><th>P&amp;L %</th>
+          <th>Zone</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="tradeBody">
+        <tr class="no-data"><td colspan="10">No trades logged yet</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let allTrades  = [];
+let equityChart, returnsChart;
+
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
+const socket = io({ reconnectionDelay: 2000 });
+
+socket.on("connect",    () => setStatus("live"));
+socket.on("disconnect", () => setStatus("disconnected"));
+socket.on("data",       d  => render(d));
+
+function setStatus(state) {
+  const dot   = document.getElementById("statusDot");
+  const label = document.getElementById("statusLabel");
+  dot.className = "status-dot " + (state === "live" ? "live" : state === "disconnected" ? "error" : "");
+  label.className = "status-label " + (state === "live" ? "live" : "");
+  label.textContent = state === "live" ? "LIVE" : state === "disconnected" ? "Reconnecting…" : "Connecting…";
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(d) {
+  if (!d) return;
+
+  // Error banner
+  const banner = document.getElementById("errorBanner");
+  if (d.error) { banner.textContent = "⚠ " + d.error; banner.classList.add("visible"); }
+  else         { banner.classList.remove("visible"); }
+
+  // Credentials badge
+  const badge = document.getElementById("credsBadge");
+  badge.textContent = d.credentials_ok ? "✓ Connected" : "No credentials";
+  badge.className   = "creds-badge " + (d.credentials_ok ? "ok" : "");
+
+  // Last update
+  if (d.last_update) {
+    document.getElementById("lastUpdate").textContent = "Updated " + fmtTime(d.last_update);
+  }
+
+  const m = d.metrics ?? {};
+  const b = d.balance  ?? {};
+
+  // Balance card
+  setText("cardBalance", b.usdt != null ? "$" + fmt2(b.usdt) : "—");
+  setText("cardEquity",  b.total_equity != null
+    ? `Total equity: $${fmt2(b.total_equity)}`
+    : "Set credentials in .env");
+
+  // Today P&L
+  const todayPnl = m.today_pnl_usdt ?? 0;
+  const el = document.getElementById("cardTodayPnl");
+  el.textContent = (todayPnl >= 0 ? "+" : "") + "$" + fmt2(Math.abs(todayPnl));
+  el.className   = "card-value " + (todayPnl >= 0 ? "pos" : "neg");
+  setText("cardTodayStats", m.today_trades != null
+    ? `${m.today_trades} trades · ${m.today_wins}W / ${(m.today_trades - m.today_wins)}L`
+    : "—");
+
+  // Win rate
+  setText("cardWinRate", m.win_rate != null ? m.win_rate + "%" : "—");
+  setText("cardWinSub",  m.total_trades ? `${m.total_trades} total trades` : "No trades yet");
+
+  // Total P&L
+  const tpnl = m.total_pnl_usdt ?? 0;
+  const tEl  = document.getElementById("cardTotalPnl");
+  tEl.textContent = (tpnl >= 0 ? "+" : "") + "$" + fmt2(Math.abs(tpnl));
+  tEl.className   = "card-value " + (tpnl >= 0 ? "pos" : "neg");
+  setText("cardTotalSub", m.total_pnl_pct != null
+    ? `${m.total_pnl_pct >= 0 ? "+" : ""}${m.total_pnl_pct}% all-time`
+    : "—");
+
+  // Risk row
+  const dd = m.max_drawdown_pct ?? 0;
+  const ddEl = document.getElementById("riskDD");
+  ddEl.textContent = dd ? "-" + fmt2(dd) + "%" : "0%";
+  ddEl.className   = "risk-value " + (dd > 15 ? "pnl-neg" : dd > 5 ? "" : "pnl-pos");
+  setText("riskSharpe",  m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : "—");
+  setText("riskPF",      m.profit_factor ?? "—");
+  setText("riskAvgWin",  m.avg_win_usdt  ? "+$" + fmt2(m.avg_win_usdt)  : "—");
+  setText("riskAvgLoss", m.avg_loss_usdt ? "$"  + fmt2(m.avg_loss_usdt) : "—");
+  setText("riskTrades",  m.total_trades ?? "0");
+
+  // Positions table
+  renderPositions(d.positions ?? []);
+
+  // Charts
+  updateCharts(d.charts ?? {});
+
+  // Trades
+  allTrades = d.recent_trades ?? [];
+  renderTrades();
+}
+
+function renderPositions(positions) {
+  document.getElementById("posCount").textContent = positions.length;
+  const tbody = document.getElementById("posBody");
+  if (!positions.length) {
+    tbody.innerHTML = '<tr class="no-data"><td colspan="8">No open positions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = positions.map(p => {
+    const cls = p.pnl_pct >= 0 ? "pnl-pos" : "pnl-neg";
+    const sign = p.pnl_usdt >= 0 ? "+" : "";
+    return `<tr>
+      <td><strong>${p.symbol}</strong></td>
+      <td>${fmtQty(p.quantity)}</td>
+      <td>$${fmtPrice(p.entry_price)}</td>
+      <td>$${fmtPrice(p.current_price)}</td>
+      <td>$${fmt2(p.cost_basis)}</td>
+      <td>$${fmt2(p.current_value)}</td>
+      <td class="${cls}">${sign}$${fmt2(Math.abs(p.pnl_usdt))}</td>
+      <td class="${cls}">${sign}${p.pnl_pct}%</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderTrades() {
+  const symFilter    = (document.getElementById("filterSymbol").value || "").toUpperCase();
+  const statusFilter = document.getElementById("filterStatus").value;
+  const sideFilter   = document.getElementById("filterSide").value;
+
+  const filtered = allTrades.filter(t => {
+    if (symFilter    && !(t.symbol ?? "").toUpperCase().includes(symFilter)) return false;
+    if (statusFilter && t.status !== statusFilter)  return false;
+    if (sideFilter   && t.side   !== sideFilter)    return false;
+    return true;
+  });
+
+  const tbody = document.getElementById("tradeBody");
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr class="no-data"><td colspan="10">No trades match the filter</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.slice(0, 200).map(t => {
+    const pnl  = t.pnl_usdt ?? null;
+    const cls  = pnl === null ? "" : pnl >= 0 ? "pnl-pos" : "pnl-neg";
+    const sign = pnl === null ? "" : pnl >= 0 ? "+" : "";
+    return `<tr>
+      <td>${t.timestamp ? fmtDate(t.timestamp) : "—"}</td>
+      <td>${t.symbol ?? "—"}</td>
+      <td><span class="tag ${t.side === "BUY" ? "tag-buy" : "tag-sell"}">${t.side ?? "—"}</span></td>
+      <td>${t.quantity ?? "—"}</td>
+      <td>${t.entry_price ? "$" + fmtPrice(t.entry_price) : "—"}</td>
+      <td>${t.exit_price  ? "$" + fmtPrice(t.exit_price)  : "—"}</td>
+      <td class="${cls}">${pnl !== null ? sign + "$" + fmt2(Math.abs(pnl)) : "—"}</td>
+      <td class="${cls}">${t.pnl_pct != null ? sign + t.pnl_pct + "%" : "—"}</td>
+      <td>${t.zone_type ? `<span class="tag tag-open">${t.zone_type}</span>` : "—"}</td>
+      <td><span class="tag ${t.status === "OPEN" ? "tag-open" : "tag-closed"}">${t.status ?? "—"}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+const CHART_OPTS = {
+  responsive: true,
+  animation:  false,
+  plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+  scales: {
+    x: { grid: { color: "#1e2d42" }, ticks: { color: "#4e6070", maxTicksLimit: 8, font: { size: 10 } } },
+    y: { grid: { color: "#1e2d42" }, ticks: { color: "#4e6070", font: { size: 10 } } },
+  },
+};
+
+function initCharts() {
+  const eCtx = document.getElementById("equityChart").getContext("2d");
+  equityChart = new Chart(eCtx, {
+    type: "line",
+    data: { datasets: [{
+      data: [], borderColor: "#3b82f6", borderWidth: 2,
+      fill: true, backgroundColor: "rgba(59,130,246,0.06)",
+      tension: 0.3, pointRadius: 0, pointHoverRadius: 4,
+    }] },
+    options: {
+      ...CHART_OPTS,
+      scales: {
+        ...CHART_OPTS.scales,
+        x: { ...CHART_OPTS.scales.x, type: "category" },
+        y: { ...CHART_OPTS.scales.y, ticks: {
+          ...CHART_OPTS.scales.y.ticks,
+          callback: v => "$" + v.toLocaleString(),
+        }},
+      },
+    },
+  });
+
+  const rCtx = document.getElementById("returnsChart").getContext("2d");
+  returnsChart = new Chart(rCtx, {
+    type: "bar",
+    data: { datasets: [{
+      data: [], borderRadius: 2,
+      backgroundColor: ctx => {
+        const v = ctx.raw?.y ?? ctx.raw ?? 0;
+        return v >= 0 ? "rgba(16,185,129,0.65)" : "rgba(239,68,68,0.65)";
+      },
+    }] },
+    options: {
+      ...CHART_OPTS,
+      scales: {
+        ...CHART_OPTS.scales,
+        x: { ...CHART_OPTS.scales.x, type: "category" },
+        y: { ...CHART_OPTS.scales.y, ticks: {
+          ...CHART_OPTS.scales.y.ticks,
+          callback: v => v.toFixed(1) + "%",
+        }},
+      },
+    },
+  });
+}
+
+function updateCharts({ equity = [], dailyReturns = [] }) {
+  if (!equityChart || !returnsChart) return;
+
+  equityChart.data.labels    = equity.map(p => p.x);
+  equityChart.data.datasets[0].data = equity.map(p => p.y);
+  equityChart.update();
+
+  returnsChart.data.labels    = dailyReturns.map(p => p.x);
+  returnsChart.data.datasets[0].data = dailyReturns.map(p => p.y);
+  returnsChart.update();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setText(id, v) { document.getElementById(id).textContent = v; }
+function fmt2(n)        { return parseFloat(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtPrice(n)    { return parseFloat(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }); }
+function fmtQty(n)      { return parseFloat(n).toPrecision(6); }
+function fmtTime(iso)   {
+  try { return new Date(iso).toLocaleTimeString(); } catch { return iso; }
+}
+function fmtDate(iso)   {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      + " " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  } catch { return iso; }
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+function exportCSV() {
+  window.location.href = "/api/export/csv";
+}
+function forceRefresh() {
+  socket.emit("refresh"); // server ignores unknown events but triggers a reconnect poll
+  fetch("/api/live").then(r => r.json()).then(render).catch(() => {});
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+initCharts();
+</script>
+</body>
+</html>

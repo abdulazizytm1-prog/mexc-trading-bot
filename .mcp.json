@@ -1,0 +1,17 @@
+{
+  "mexc-trading-py": {
+    "command": "python",
+    "args": ["C:\\Users\\ASUS\\mexc-trading-bot\\mexc_mcp_server.py"],
+    "cwd": "C:\\Users\\ASUS\\mexc-trading-bot"
+  },
+  "mexc-trading-js": {
+    "command": "node",
+    "args": ["C:\\Users\\ASUS\\mexc-trading-bot\\mexc_mcp.js"],
+    "cwd": "C:\\Users\\ASUS\\mexc-trading-bot"
+  },
+  "mexc-smc": {
+    "command": "node",
+    "args": ["C:\\Users\\ASUS\\mexc-trading-bot\\mexc_mcp_server.js"],
+    "cwd": "C:\\Users\\ASUS\\mexc-trading-bot"
+  }
+}

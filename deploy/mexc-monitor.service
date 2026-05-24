@@ -1,0 +1,51 @@
+# /etc/systemd/system/mexc-monitor.service
+#
+# Systemd unit for the trading dashboard (alternative to PM2).
+# PM2 is recommended — use this only if you prefer raw systemd.
+#
+# Install:
+#   sudo cp deploy/mexc-monitor.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mexc-monitor
+#
+# Commands:
+#   sudo systemctl status  mexc-monitor
+#   sudo systemctl restart mexc-monitor
+#   sudo journalctl -u mexc-monitor -f
+
+[Unit]
+Description=MEXC Trading Monitor Dashboard
+Documentation=https://github.com/your/repo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/opt/mexc-trading-bot
+
+# Node.js 20 ESM — no flags needed; top-level await works natively
+ExecStart=/usr/bin/node /opt/mexc-trading-bot/monitoring-server.js
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Logging (journald + flat files)
+StandardOutput=append:/opt/mexc-trading-bot/logs/monitor.log
+StandardError=append:/opt/mexc-trading-bot/logs/monitor-error.log
+
+# Environment
+Environment=NODE_ENV=production
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/mexc-trading-bot
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

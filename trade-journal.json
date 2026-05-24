@@ -1,0 +1,10 @@
+{
+  "account": {
+    "starting_balance": 0,
+    "currency": "USDT",
+    "created_at": "2026-05-24T00:00:00.000Z",
+    "note": "Set starting_balance to your initial USDT deposit for accurate P&L% tracking"
+  },
+  "trades": [],
+  "equity_snapshots": []
+}

@@ -1,0 +1,1125 @@
+2026-05-23 20:02:07 [INFO] Connected to MEXC. Server time: 2026-05-23 15:02:06 UTC
+2026-05-23 20:02:07 [INFO] Bot started. Approved pairs: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'AVAXUSDT']
+2026-05-23 20:02:07 [ERROR] Cannot fetch account balance: MEXC API error 10072: Api key info invalid (HTTP 400)
+2026-05-23 20:03:01 [INFO] Connected to MEXC. Server time: 2026-05-23 15:03:00 UTC
+2026-05-23 20:03:01 [INFO] Bot started. Approved pairs: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'AVAXUSDT']
+2026-05-23 20:03:02 [ERROR] Cannot fetch account balance: MEXC API error 10072: Api key info invalid (HTTP 400)
+2026-05-23 20:04:57 [INFO] Connected to MEXC. Server time: 2026-05-23 15:04:56 UTC
+2026-05-23 20:04:57 [INFO] Bot started. Approved pairs: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'AVAXUSDT']
+2026-05-23 20:04:58 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 20:05:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:05:01 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:05:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:05:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:05:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:06:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:06:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:06:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:06:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:06:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:07:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:07:01 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:07:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:07:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:07:02 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:08:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:08:01 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:08:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:08:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:08:02 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:09:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:09:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:09:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:09:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:09:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:10:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:10:01 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:10:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:10:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:10:02 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:11:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:11:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:11:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:11:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:11:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:12:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:12:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:12:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:12:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:12:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:13:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:13:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:13:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:13:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:13:02 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:14:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:14:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:14:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:14:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:14:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:15:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:15:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:15:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:15:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:15:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:16:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:16:01 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:16:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:16:02 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:16:02 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:17:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:17:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:17:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:17:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:17:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:00 [ERROR] [BTCUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:00 [ERROR] [ETHUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:01 [ERROR] [SOLUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:01 [ERROR] [ADAUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:01 [ERROR] [AVAXUSDT] API error during scan: MEXC API error 700004: Mandatory parameter 'signature' was not sent, was empty/null, or malformed. (HTTP 400)
+2026-05-23 20:18:56 [INFO] Shutdown requested — closing gracefully.
+2026-05-23 20:25:19 [INFO] Connected to MEXC. Server time: 2026-05-23 15:25:18 UTC
+2026-05-23 20:25:19 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-23 20:25:19 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-23 20:25:24 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-23 20:25:24 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-23 20:25:24 [INFO] [CoinSelector] MEXC has 0 active USDT spot pairs
+2026-05-23 20:25:24 [INFO] [CoinSelector] 0 pairs available on MEXC after cross-reference
+2026-05-23 20:25:25 [INFO] [CoinSelector] Volume floor $500,000: 0 → 0 pairs
+2026-05-23 20:25:25 [WARNING] [CoinSelector] Only 0 pairs qualified — supplementing with fallback list
+2026-05-23 20:25:25 [INFO] [CoinSelector] Active pairs (5): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:25:25 [INFO] [CoinSelector] Next refresh at 2026-05-24 00:25
+2026-05-23 20:25:25 [INFO] Trading universe (5 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:25:25 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 20:25:26 [ERROR] [BTCUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:25:26 [ERROR] [ETHUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:25:26 [ERROR] [SOLUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:25:27 [ERROR] [BNBUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:25:27 [ERROR] [XRPUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:26:26 [ERROR] [BTCUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:26:26 [ERROR] [ETHUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:26:26 [ERROR] [SOLUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:26:27 [ERROR] [BNBUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:26:27 [ERROR] [XRPUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:27:26 [ERROR] [BTCUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:27:26 [ERROR] [ETHUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:27:26 [ERROR] [SOLUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:27:27 [ERROR] [BNBUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:27:27 [ERROR] [XRPUSDT] API error during scan: MEXC API error -1121: Invalid interval. (HTTP 400)
+2026-05-23 20:28:04 [INFO] Shutdown requested — closing gracefully.
+2026-05-23 20:28:18 [INFO] Connected to MEXC. Server time: 2026-05-23 15:28:17 UTC
+2026-05-23 20:28:18 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-23 20:28:18 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-23 20:28:23 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-23 20:28:23 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-23 20:28:23 [INFO] [CoinSelector] MEXC has 0 active USDT spot pairs
+2026-05-23 20:28:23 [INFO] [CoinSelector] 0 pairs available on MEXC after cross-reference
+2026-05-23 20:28:26 [INFO] [CoinSelector] Volume floor $500,000: 0 → 0 pairs
+2026-05-23 20:28:26 [WARNING] [CoinSelector] Only 0 pairs qualified — supplementing with fallback list
+2026-05-23 20:28:26 [INFO] [CoinSelector] Active pairs (5): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:28:26 [INFO] [CoinSelector] Next refresh at 2026-05-24 00:28
+2026-05-23 20:28:26 [INFO] Trading universe (5 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:28:26 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 20:28:27 [ERROR] [BTCUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:28:28 [ERROR] [ETHUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:28:28 [ERROR] [SOLUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:28:28 [ERROR] [BNBUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:28:29 [ERROR] [XRPUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:29:27 [ERROR] [BTCUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:29:28 [ERROR] [ETHUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:29:29 [ERROR] [SOLUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:29:29 [ERROR] [BNBUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:29:29 [ERROR] [XRPUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    df = pd.DataFrame(raw_klines, columns=[
+        "open_time", "open", "high", "low", "close", "volume",
+        "close_time", "quote_volume", "trade_count",
+        "taker_buy_vol", "taker_buy_quote_vol", "ignore",
+    ])
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:30:27 [ERROR] [BTCUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:30:28 [ERROR] [ETHUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:30:28 [ERROR] [SOLUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:30:28 [ERROR] [BNBUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:30:29 [ERROR] [XRPUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:31:27 [ERROR] [BTCUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:31:28 [ERROR] [ETHUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:31:28 [ERROR] [SOLUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:31:28 [ERROR] [BNBUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:31:29 [ERROR] [XRPUSDT] Unexpected error during scan: 12 columns passed, passed data had 8 columns
+Traceback (most recent call last):
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 911, in _finalize_columns_and_data
+    columns = _validate_or_indexify_columns(contents, columns)
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 958, in _validate_or_indexify_columns
+    raise AssertionError(
+        f"{len(columns)} columns passed, passed data had {len(content)} columns"
+    )
+AssertionError: 12 columns passed, passed data had 8 columns
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\mexc-trading-bot\main.py", line 226, in run
+    df = candles_to_df(klines)
+  File "C:\Users\ASUS\mexc-trading-bot\strategy.py", line 73, in candles_to_df
+    ]
+    
+    ...<3 lines>...
+    def candles_to_df(raw_klines: list) -> pd.DataFrame:
+    ^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\frame.py", line 837, in __init__
+    arrays, columns, index = nested_data_to_arrays(
+                             ~~~~~~~~~~~~~~~~~~~~~^
+        # error: Argument 3 to "nested_data_to_arrays" has incompatible
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        dtype,
+        ^^^^^^
+    )
+    ^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 477, in nested_data_to_arrays
+    arrays, columns = to_arrays(data, columns, dtype=dtype)
+                      ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 812, in to_arrays
+    content, columns = _finalize_columns_and_data(arr, columns, dtype)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\site-packages\pandas\core\internals\construction.py", line 914, in _finalize_columns_and_data
+    raise ValueError(err) from err
+ValueError: 12 columns passed, passed data had 8 columns
+2026-05-23 20:32:25 [INFO] Shutdown requested — closing gracefully.
+2026-05-23 20:32:28 [INFO] Connected to MEXC. Server time: 2026-05-23 15:32:27 UTC
+2026-05-23 20:32:28 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-23 20:32:28 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-23 20:32:32 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-23 20:32:32 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-23 20:32:33 [INFO] [CoinSelector] MEXC has 0 active USDT spot pairs
+2026-05-23 20:32:33 [INFO] [CoinSelector] 0 pairs available on MEXC after cross-reference
+2026-05-23 20:32:33 [INFO] [CoinSelector] Volume floor $500,000: 0 → 0 pairs
+2026-05-23 20:32:33 [WARNING] [CoinSelector] Only 0 pairs qualified — supplementing with fallback list
+2026-05-23 20:32:33 [INFO] [CoinSelector] Active pairs (5): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:32:33 [INFO] [CoinSelector] Next refresh at 2026-05-24 00:32
+2026-05-23 20:32:33 [INFO] Trading universe (5 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
+2026-05-23 20:32:33 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 20:33:19 [INFO] Shutdown requested — closing gracefully.
+2026-05-23 20:50:58 [INFO] Connected to MEXC. Server time: 2026-05-23 15:50:57 UTC
+2026-05-23 20:50:58 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-23 20:50:58 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-23 20:51:03 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-23 20:51:03 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-23 20:51:03 [INFO] exchangeInfo status distribution: {'1': 2469, '2': 1}
+2026-05-23 20:51:03 [INFO] get_all_usdt_spot_symbols: 2010 active USDT pairs found
+2026-05-23 20:51:03 [INFO] [CoinSelector] MEXC has 2010 active USDT spot pairs
+2026-05-23 20:51:03 [INFO] [CoinSelector] 432 pairs available on MEXC after cross-reference
+2026-05-23 20:51:03 [INFO] [CoinSelector] Volume floor $500,000: 432 → 73 pairs
+2026-05-23 20:51:03 [INFO] [CoinSelector] Active pairs (20): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRIAUSDT', 'TRXUSDT', 'BSBUSDT', 'ADAUSDT', 'USD1USDT', 'INJUSDT', 'SUIUSDT', 'LTCUSDT', 'HYPEUSDT', 'BCHUSDT', 'ZECUSDT', 'FILUSDT', 'TAOUSDT']
+2026-05-23 20:51:03 [INFO] [CoinSelector] Next refresh at 2026-05-24 00:51
+2026-05-23 20:51:03 [INFO] Trading universe (20 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRIAUSDT', 'TRXUSDT', 'BSBUSDT', 'ADAUSDT', 'USD1USDT', 'INJUSDT', 'SUIUSDT', 'LTCUSDT', 'HYPEUSDT', 'BCHUSDT', 'ZECUSDT', 'FILUSDT', 'TAOUSDT']
+2026-05-23 20:51:03 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 20:51:12 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.955400
+2026-05-23 20:51:12 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:52:12 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.954600
+2026-05-23 20:52:12 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:53:12 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.954700
+2026-05-23 20:53:12 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:54:13 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.953500
+2026-05-23 20:54:13 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:55:14 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.953200
+2026-05-23 20:55:14 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:56:12 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.953800
+2026-05-23 20:56:12 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 20:56:15 [INFO] Shutdown requested — closing gracefully.
+2026-05-23 21:30:18 [INFO] Connected to MEXC. Server time: 2026-05-23 16:30:17 UTC
+2026-05-23 21:30:18 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-23 21:30:18 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-23 21:30:23 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-23 21:30:23 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-23 21:30:23 [INFO] exchangeInfo status distribution: {'1': 2469, '2': 1}
+2026-05-23 21:30:23 [INFO] get_all_usdt_spot_symbols: 2010 active USDT pairs found
+2026-05-23 21:30:23 [INFO] [CoinSelector] MEXC has 2010 active USDT spot pairs
+2026-05-23 21:30:23 [INFO] [CoinSelector] 431 pairs available on MEXC after cross-reference
+2026-05-23 21:30:23 [INFO] [CoinSelector] Volume floor $500,000: 431 → 73 pairs
+2026-05-23 21:30:23 [INFO] [CoinSelector] Active pairs (20): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRIAUSDT', 'TRXUSDT', 'BSBUSDT', 'ADAUSDT', 'USD1USDT', 'INJUSDT', 'SUIUSDT', 'LTCUSDT', 'BCHUSDT', 'HYPEUSDT', 'ZECUSDT', 'TAOUSDT', 'FILUSDT']
+2026-05-23 21:30:23 [INFO] [CoinSelector] Next refresh at 2026-05-24 01:30
+2026-05-23 21:30:23 [INFO] Trading universe (20 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRIAUSDT', 'TRXUSDT', 'BSBUSDT', 'ADAUSDT', 'USD1USDT', 'INJUSDT', 'SUIUSDT', 'LTCUSDT', 'BCHUSDT', 'HYPEUSDT', 'ZECUSDT', 'TAOUSDT', 'FILUSDT']
+2026-05-23 21:30:24 [INFO] Session opening balance: 15.99 USDT
+2026-05-23 21:30:33 [INFO] [FILUSDT] Signal: zone=FVG+OB strength=1.00 price=0.954100
+2026-05-23 21:30:34 [WARNING] [FILUSDT] Position size too small — skipped.
+2026-05-23 21:31:06 [INFO] Shutdown requested — closing gracefully.
+2026-05-24 15:47:43 [INFO] Connected to MEXC. Server time: 2026-05-24 10:47:43 UTC
+2026-05-24 15:47:43 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-24 15:47:43 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-24 15:47:49 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-24 15:47:49 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-24 15:47:49 [INFO] exchangeInfo status distribution: {'1': 2471, '2': 1}
+2026-05-24 15:47:49 [INFO] get_all_usdt_spot_symbols: 2011 active USDT pairs found
+2026-05-24 15:47:49 [INFO] [CoinSelector] MEXC has 2011 active USDT spot pairs
+2026-05-24 15:47:49 [INFO] [CoinSelector] 433 pairs available on MEXC after cross-reference
+2026-05-24 15:47:50 [INFO] [CoinSelector] Volume floor $500,000: 433 → 65 pairs
+2026-05-24 15:47:50 [INFO] [CoinSelector] Active pairs (20): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRXUSDT', 'TRIAUSDT', 'NEARUSDT', 'ZECUSDT', 'HYPEUSDT', 'ADAUSDT', 'INJUSDT', 'BSBUSDT', 'SUIUSDT', 'BEATUSDT', 'TAOUSDT', 'LTCUSDT', 'TONUSDT']
+2026-05-24 15:47:50 [INFO] [CoinSelector] Next refresh at 2026-05-24 19:47
+2026-05-24 15:47:50 [INFO] Trading universe (20 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRXUSDT', 'TRIAUSDT', 'NEARUSDT', 'ZECUSDT', 'HYPEUSDT', 'ADAUSDT', 'INJUSDT', 'BSBUSDT', 'SUIUSDT', 'BEATUSDT', 'TAOUSDT', 'LTCUSDT', 'TONUSDT']
+2026-05-24 15:47:50 [INFO] Session opening balance: 15.99 USDT
+2026-05-24 15:47:58 [INFO] [HYPEUSDT] Signal: zone=FVG strength=0.97 price=62.760000
+2026-05-24 15:47:58 [WARNING] [HYPEUSDT] Position size too small — skipped.
+2026-05-24 15:47:59 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.180000
+2026-05-24 15:47:59 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:48:01 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.183730
+2026-05-24 15:48:01 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:48:03 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.779000
+2026-05-24 15:48:03 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:48:06 [INFO] Shutdown requested — closing gracefully.
+2026-05-24 15:49:00 [INFO] Connected to MEXC. Server time: 2026-05-24 10:48:59 UTC
+2026-05-24 15:49:00 [INFO] Building initial pair list (CoinGecko + MEXC cross-reference)…
+2026-05-24 15:49:00 [INFO] [CoinSelector] Starting pair-list refresh…
+2026-05-24 15:49:05 [INFO] [CoinGecko] Fetched 500 coins across 2 page(s)
+2026-05-24 15:49:05 [INFO] [CoinSelector] 500 → 493 coins after haram filter (7 removed)
+2026-05-24 15:49:05 [INFO] exchangeInfo status distribution: {'1': 2471, '2': 1}
+2026-05-24 15:49:05 [INFO] get_all_usdt_spot_symbols: 2011 active USDT pairs found
+2026-05-24 15:49:05 [INFO] [CoinSelector] MEXC has 2011 active USDT spot pairs
+2026-05-24 15:49:05 [INFO] [CoinSelector] 435 pairs available on MEXC after cross-reference
+2026-05-24 15:49:06 [INFO] [CoinSelector] Volume floor $500,000: 435 → 65 pairs
+2026-05-24 15:49:06 [INFO] [CoinSelector] Active pairs (20): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRXUSDT', 'TRIAUSDT', 'NEARUSDT', 'ZECUSDT', 'HYPEUSDT', 'ADAUSDT', 'INJUSDT', 'BSBUSDT', 'SUIUSDT', 'BEATUSDT', 'TAOUSDT', 'LTCUSDT', 'TONUSDT']
+2026-05-24 15:49:06 [INFO] [CoinSelector] Next refresh at 2026-05-24 19:49
+2026-05-24 15:49:06 [INFO] Trading universe (20 pairs): ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'USDCUSDT', 'XRPUSDT', 'DOGEUSDT', 'BNBUSDT', 'TRXUSDT', 'TRIAUSDT', 'NEARUSDT', 'ZECUSDT', 'HYPEUSDT', 'ADAUSDT', 'INJUSDT', 'BSBUSDT', 'SUIUSDT', 'BEATUSDT', 'TAOUSDT', 'LTCUSDT', 'TONUSDT']
+2026-05-24 15:49:06 [INFO] Session opening balance: 15.99 USDT
+2026-05-24 15:49:11 [INFO] [HYPEUSDT] Signal: zone=FVG strength=0.97 price=62.630000
+2026-05-24 15:49:12 [WARNING] [HYPEUSDT] Position size too small — skipped.
+2026-05-24 15:49:13 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.178000
+2026-05-24 15:49:13 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:49:15 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.176750
+2026-05-24 15:49:15 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:49:16 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.777000
+2026-05-24 15:49:17 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:50:12 [INFO] [HYPEUSDT] Signal: zone=FVG strength=0.97 price=62.590000
+2026-05-24 15:50:12 [WARNING] [HYPEUSDT] Position size too small — skipped.
+2026-05-24 15:50:13 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.182000
+2026-05-24 15:50:13 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:50:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.181220
+2026-05-24 15:50:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:50:15 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.779000
+2026-05-24 15:50:15 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:51:08 [INFO] [XRPUSDT] Signal: zone=FVG strength=0.98 price=1.363300
+2026-05-24 15:51:09 [WARNING] [XRPUSDT] Position size too small — skipped.
+2026-05-24 15:51:12 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.180000
+2026-05-24 15:51:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:51:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.179300
+2026-05-24 15:51:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:51:15 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.779000
+2026-05-24 15:51:15 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:52:12 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.188000
+2026-05-24 15:52:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:52:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.174620
+2026-05-24 15:52:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:52:14 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.783000
+2026-05-24 15:52:14 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:53:12 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.193000
+2026-05-24 15:53:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:53:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.062400
+2026-05-24 15:53:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:53:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.181510
+2026-05-24 15:53:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:54:12 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.187000
+2026-05-24 15:54:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:54:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.062600
+2026-05-24 15:54:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:54:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.184980
+2026-05-24 15:54:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:55:10 [INFO] [TRXUSDT] Signal: zone=FVG strength=0.98 price=0.364000
+2026-05-24 15:55:10 [WARNING] [TRXUSDT] Position size too small — skipped.
+2026-05-24 15:55:12 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.186000
+2026-05-24 15:55:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:55:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.062600
+2026-05-24 15:55:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:55:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.181620
+2026-05-24 15:55:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:55:15 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.783000
+2026-05-24 15:55:15 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:56:10 [INFO] [TRXUSDT] Signal: zone=FVG strength=0.98 price=0.364000
+2026-05-24 15:56:10 [WARNING] [TRXUSDT] Position size too small — skipped.
+2026-05-24 15:56:13 [INFO] [INJUSDT] Signal: zone=FVG+OB strength=1.00 price=5.193000
+2026-05-24 15:56:13 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:56:14 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.062200
+2026-05-24 15:56:14 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:56:15 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.183000
+2026-05-24 15:56:15 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:56:16 [INFO] [TONUSDT] Signal: zone=OB strength=0.82 price=1.783000
+2026-05-24 15:56:16 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 15:57:10 [INFO] [TRXUSDT] Signal: zone=FVG strength=0.98 price=0.364000
+2026-05-24 15:57:10 [WARNING] [TRXUSDT] Position size too small — skipped.
+2026-05-24 15:57:12 [INFO] [INJUSDT] Signal: zone=FVG strength=0.68 price=5.197000
+2026-05-24 15:57:12 [WARNING] [INJUSDT] Position size too small — skipped.
+2026-05-24 15:57:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.063400
+2026-05-24 15:57:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:57:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.181700
+2026-05-24 15:57:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:58:09 [INFO] [TRXUSDT] Signal: zone=FVG strength=0.98 price=0.364000
+2026-05-24 15:58:09 [WARNING] [TRXUSDT] Position size too small — skipped.
+2026-05-24 15:58:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.063500
+2026-05-24 15:58:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:58:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.183610
+2026-05-24 15:58:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 15:59:10 [INFO] [TRXUSDT] Signal: zone=FVG strength=0.98 price=0.364000
+2026-05-24 15:59:10 [WARNING] [TRXUSDT] Position size too small — skipped.
+2026-05-24 15:59:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.063500
+2026-05-24 15:59:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 15:59:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.67 price=1.189030
+2026-05-24 15:59:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:00:10 [INFO] [TRIAUSDT] Signal: zone=FVG strength=0.98 price=0.043200
+2026-05-24 16:00:11 [WARNING] [TRIAUSDT] Position size too small — skipped.
+2026-05-24 16:00:14 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.063800
+2026-05-24 16:00:14 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 16:00:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.65 price=1.186430
+2026-05-24 16:00:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:00:15 [INFO] [TONUSDT] Signal: zone=FVG strength=0.98 price=1.789000
+2026-05-24 16:00:15 [WARNING] [TONUSDT] Position size too small — skipped.
+2026-05-24 16:01:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.065000
+2026-05-24 16:01:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 16:01:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.65 price=1.182440
+2026-05-24 16:01:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:02:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.066000
+2026-05-24 16:02:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 16:02:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.65 price=1.171010
+2026-05-24 16:02:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:03:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.066600
+2026-05-24 16:03:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 16:03:13 [INFO] [BEATUSDT] Signal: zone=OB strength=0.65 price=1.168650
+2026-05-24 16:03:13 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:04:13 [INFO] [SUIUSDT] Signal: zone=OB strength=1.00 price=1.066000
+2026-05-24 16:04:13 [WARNING] [SUIUSDT] Position size too small — skipped.
+2026-05-24 16:04:14 [INFO] [BEATUSDT] Signal: zone=OB strength=0.65 price=1.164540
+2026-05-24 16:04:14 [WARNING] [BEATUSDT] Position size too small — skipped.
+2026-05-24 16:05:14 [INFO] Shutdown requested — closing gracefully.
