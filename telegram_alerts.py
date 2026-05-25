@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+import threading
+import time as _time
+from typing import TYPE_CHECKING, Optional
 
 import requests
+
+if TYPE_CHECKING:
+    from claude_trader import ClaudeTrader
 
 log = logging.getLogger(__name__)
 
@@ -245,3 +250,267 @@ def market_filter(reason: str, btc_dom: Optional[float] = None) -> bool:
         f"{reason}"
     )
     return _send(text)
+
+
+# ------------------------------------------------------------------ #
+#  Interactive command handler                                         #
+# ------------------------------------------------------------------ #
+
+class TelegramCommandHandler:
+    """
+    Background daemon thread that polls Telegram getUpdates every 10 s and
+    dispatches bot commands from the authorised chat.
+
+    Security
+    --------
+    Messages from any chat other than TELEGRAM_CHAT_ID are silently dropped.
+
+    trading_enabled
+    ---------------
+    Public bool — read it in the main ClaudeTrader loop to gate new entries.
+    /stop sets it False; /start sets it True.
+    """
+
+    _POLL_INTERVAL = 10   # seconds between getUpdates polls
+
+    def __init__(self, trader: "ClaudeTrader") -> None:
+        self.trading_enabled: bool = True
+        self._trader            = trader
+        self._offset:      int  = 0
+        self._stop_event        = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    # ---------------------------------------------------------------- #
+    #  Lifecycle                                                         #
+    # ---------------------------------------------------------------- #
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._poll_loop,
+            name="TelegramCmdHandler",
+            daemon=True,
+        )
+        self._thread.start()
+        log.info("[TelegramCmd] Command listener started (polling every %ds).", self._POLL_INTERVAL)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=15)
+        log.info("[TelegramCmd] Command listener stopped.")
+
+    # ---------------------------------------------------------------- #
+    #  Poll loop                                                         #
+    # ---------------------------------------------------------------- #
+
+    def _poll_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self._fetch_and_dispatch()
+            except Exception as exc:
+                log.debug("[TelegramCmd] Poll error: %s", exc)
+            self._stop_event.wait(self._POLL_INTERVAL)
+
+    def _fetch_and_dispatch(self) -> None:
+        if not _TOKEN or not _CHAT_ID:
+            return
+        try:
+            resp = requests.get(
+                f"https://api.telegram.org/bot{_TOKEN}/getUpdates",
+                params={"offset": self._offset, "limit": 20, "timeout": 0},
+                timeout=15,
+            )
+        except Exception as exc:
+            log.debug("[TelegramCmd] getUpdates network error: %s", exc)
+            return
+
+        if not resp.ok:
+            return
+
+        for update in resp.json().get("result", []):
+            update_id = update.get("update_id", 0)
+            self._offset = update_id + 1          # advance past this update
+
+            msg = update.get("message") or update.get("edited_message")
+            if not msg:
+                continue
+
+            # Security: only respond to the configured chat
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            if chat_id != str(_CHAT_ID):
+                log.debug("[TelegramCmd] Ignored message from unknown chat %s.", chat_id)
+                continue
+
+            text = (msg.get("text") or "").strip()
+            if text.startswith("/"):
+                self._dispatch(text)
+
+    def _dispatch(self, text: str) -> None:
+        # Strip @BotUsername suffix (e.g. /balance@mybot → /balance)
+        cmd = text.split()[0].split("@")[0].lower()
+        handlers = {
+            "/balance":   self._cmd_balance,
+            "/positions": self._cmd_positions,
+            "/status":    self._cmd_status,
+            "/stop":      self._cmd_stop,
+            "/start":     self._cmd_start,
+            "/report":    self._cmd_report,
+            "/pairs":     self._cmd_pairs,
+            "/help":      self._cmd_help,
+        }
+        fn = handlers.get(cmd)
+        if fn:
+            try:
+                _send(fn())
+            except Exception as exc:
+                log.error("[TelegramCmd] Error in %s handler: %s", cmd, exc)
+                _send(f"⚠️ Error running {cmd}: {exc}")
+        else:
+            _send(f"❓ Unknown command: {cmd}\nSend /help to see all commands.")
+
+    # ---------------------------------------------------------------- #
+    #  Command implementations                                           #
+    # ---------------------------------------------------------------- #
+
+    def _live_price(self, symbol: str) -> Optional[float]:
+        """Try WS feed first, fall back to REST."""
+        ws = getattr(self._trader, "_ws_feed", None)
+        if ws:
+            p = ws.get_price(symbol)
+            if p:
+                return p
+        try:
+            return self._trader._api.get_ticker_price(symbol)
+        except Exception:
+            return None
+
+    def _cmd_balance(self) -> str:
+        try:
+            balance = self._trader._api.get_usdt_balance()
+            self._trader._balance = balance
+
+            # Total equity = free USDT + unrealised value of open positions
+            total_equity = balance
+            for sym, pos in self._trader._risk_mgr.all_positions().items():
+                price = self._live_price(sym)
+                if price:
+                    total_equity += price * pos.remaining_qty()
+                else:
+                    total_equity += pos.effective_entry * pos.remaining_qty()
+
+            return (
+                f"💼 Balance: {_fmt_price(balance)} USDT\n"
+                f"📊 Total equity: {_fmt_price(total_equity)}"
+            )
+        except Exception as exc:
+            return f"⚠️ Could not fetch balance: {exc}"
+
+    def _cmd_positions(self) -> str:
+        positions = self._trader._risk_mgr.all_positions()
+        if not positions:
+            return "📊 Open Positions: 0\nNo open trades"
+
+        lines = [f"📊 Open Positions: {len(positions)}\n"]
+        for sym, pos in positions.items():
+            entry = pos.effective_entry
+            price = self._live_price(sym)
+            if price and entry > 0:
+                pnl_pct   = (price - entry) / entry * 100
+                unrealised = (price - entry) * pos.remaining_qty()
+                sign  = "+" if unrealised >= 0 else ""
+                emoji = "✅" if unrealised >= 0 else "🔴"
+                lines.append(
+                    f"{emoji} {sym}\n"
+                    f"   Entry: {_fmt_price(entry)}\n"
+                    f"   Now:   {_fmt_price(price)}\n"
+                    f"   PnL:   {sign}{pnl_pct:.2f}% ({sign}${abs(unrealised):.4f})\n"
+                    f"   SL: {_fmt_price(pos.stop_loss)}"
+                )
+            else:
+                lines.append(
+                    f"📊 {sym}\n"
+                    f"   Entry: {_fmt_price(entry)}\n"
+                    f"   SL: {_fmt_price(pos.stop_loss)}"
+                )
+        return "\n".join(lines)
+
+    def _cmd_status(self) -> str:
+        status = "✅ RUNNING" if self.trading_enabled else "⏸ PAUSED"
+
+        btc_line = "📈 BTC Dominance: N/A"
+        ctx_obj = getattr(self._trader, "_market_ctx", None)
+        if ctx_obj:
+            ctx = ctx_obj.get_context()
+            if ctx:
+                dom = ctx.btc_dominance
+                tag = " (restricted)" if dom > 55.0 else " (ok)"
+                btc_line = f"📈 BTC Dominance: {dom:.1f}%{tag}"
+
+        # Import here to avoid module-level circular dep
+        from strategy import detect_kill_zone as _dkz
+        kz = _dkz()
+        kz_line = f"⏰ Kill Zone: {kz}" if kz else "⏰ Kill Zone: Outside session"
+
+        return (
+            f"🤖 Bot Status: {status}\n"
+            f"{btc_line}\n"
+            f"{kz_line}\n"
+            f"🔄 Next scan: ~5 min"
+        )
+
+    def _cmd_stop(self) -> str:
+        self.trading_enabled = False
+        log.warning("[TelegramCmd] Trading PAUSED via /stop command.")
+        return (
+            "⏸ Trading PAUSED\n"
+            "Bot will keep monitoring open positions.\n"
+            "Send /start to resume new entries."
+        )
+
+    def _cmd_start(self) -> str:
+        self.trading_enabled = True
+        log.info("[TelegramCmd] Trading RESUMED via /start command.")
+        return "✅ Trading RESUMED\nBot will now scan for new entries."
+
+    def _cmd_report(self) -> str:
+        rm      = self._trader._risk_mgr
+        trades  = rm._daily_trades
+        wins    = getattr(self._trader, "_daily_wins",   0)
+        losses  = getattr(self._trader, "_daily_losses", 0)
+        pnl     = rm.daily_pnl
+        ref     = rm._session_start_balance or getattr(self._trader, "_balance", 0) or 1.0
+        pnl_pct = pnl / ref * 100
+        win_rate = (wins / trades * 100) if trades > 0 else 0.0
+        sign = "+" if pnl >= 0 else ""
+        return (
+            f"📅 Today's Report\n"
+            f"Trades: {trades} | Wins: {wins} | Losses: {losses}\n"
+            f"PnL: {sign}${abs(pnl):.2f} ({sign}{pnl_pct:.1f}%)\n"
+            f"Win Rate: {win_rate:.0f}%"
+        )
+
+    def _cmd_pairs(self) -> str:
+        try:
+            pairs = self._trader._coin_sel.get_pairs()
+        except Exception as exc:
+            return f"⚠️ Could not retrieve pairs: {exc}"
+        if not pairs:
+            return "📋 No active pairs loaded yet."
+        pair_list = "\n".join(f"  {i + 1:>2}. {p}" for i, p in enumerate(pairs))
+        return f"📋 Active Pairs ({len(pairs)}):\n{pair_list}"
+
+    def _cmd_help(self) -> str:
+        return (
+            "🤖 Trading Bot Commands\n\n"
+            "/balance   — USDT balance + total equity\n"
+            "/positions — open trades with live P&L\n"
+            "/status    — bot state, BTC dominance, kill zone\n"
+            "/stop      — pause new entries\n"
+            "/start     — resume new entries\n"
+            "/report    — today's P&L summary\n"
+            "/pairs     — active trading pairs list\n"
+            "/help      — this message"
+        )

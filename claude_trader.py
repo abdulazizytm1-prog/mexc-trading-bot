@@ -176,6 +176,9 @@ class ClaudeTrader:
         self._daily_losses: int  = 0
         self._summary_sent_date: Optional[str] = None   # ISO date of last summary
 
+        # Telegram command handler — starts after MEXC connection is confirmed
+        self._cmd_handler = tg.TelegramCommandHandler(self)
+
     # ---------------------------------------------------------------- #
     #  Internal helpers                                                 #
     # ---------------------------------------------------------------- #
@@ -634,6 +637,7 @@ Respond ONLY in the required JSON format."""
         self._ws_feed = WSPriceFeed(uuid_map)
         self._ws_feed.start()
 
+        self._cmd_handler.start()
         log.info("[ClaudeTrader] Background services started. Loop interval: %ds.", _LOOP_INTERVAL)
 
         # ── Cycle loop ──────────────────────────────────────────────────
@@ -690,7 +694,13 @@ Respond ONLY in the required JSON format."""
 
                 altcoin_restricted = self._market_ctx.is_altcoin_restricted()
 
-                # ── Gate 3: Risk manager global limits ───────────────────
+                # ── Gate 3: Manual pause via /stop command ───────────────
+                if not self._cmd_handler.trading_enabled:
+                    log.info("[ClaudeTrader] Trading paused via /stop — skipping entry scan.")
+                    time.sleep(_LOOP_INTERVAL)
+                    continue
+
+                # ── Gate 4: Risk manager global limits ───────────────────
                 if self._risk_mgr.daily_loss_cap_reached():
                     log.warning("[ClaudeTrader] Daily loss cap reached — no new entries.")
                     time.sleep(_LOOP_INTERVAL)
@@ -875,6 +885,7 @@ Respond ONLY in the required JSON format."""
 
             except KeyboardInterrupt:
                 log.info("[ClaudeTrader] Shutdown requested — stopping services.")
+                self._cmd_handler.stop()
                 if self._ws_feed:
                     self._ws_feed.stop()
                 if self._market_ctx:
