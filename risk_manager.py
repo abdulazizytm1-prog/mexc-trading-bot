@@ -55,8 +55,10 @@ _POSITIONS_PATH   = Path(__file__).parent / "positions.json"
 _FEE_PCT          = 0.001    # 0.1% break-even SL buffer (entry + fees)
 _MAX_SL_PCT       = 0.03     # SL hard cap: never more than 3% from entry
 _TRAIL_ATR_MULT   = 1.0      # ATR multiplier for trailing stop
-_CONSEC_REDUCE_AT = 2        # Halve size after this many consecutive losses
-_CONSEC_HALT_AT   = 3        # Halt trading after this many consecutive losses
+_CONSEC_REDUCE_AT = 2        # Start reducing size at this many consecutive losses
+_CONSEC_HALT_AT   = 4        # Halt ALL trading at this many consecutive losses
+_WIN_STREAK_BOOST_AT = 3     # Boost size after this many consecutive wins
+_MAX_WIN_RISK_PCT    = 0.015 # Hard cap on risk % after a win streak (1.5%)
 
 
 # ------------------------------------------------------------------ #
@@ -192,8 +194,9 @@ class RiskManager:
         self._daily_trades: int  = 0
         self._trade_date:   date = date.today()
 
-        # Consecutive loss circuit-breaker
+        # Consecutive loss / win streak circuit-breakers
         self._consecutive_losses: int = 0
+        self._consecutive_wins:   int = 0
 
         # Load persisted state
         self.load_positions()
@@ -227,6 +230,7 @@ class RiskManager:
             for sym, pd in raw.get("positions", {}).items():
                 self._positions[sym] = _pos_from_dict(pd)
             self._consecutive_losses = int(raw.get("consecutive_losses", 0))
+            self._consecutive_wins   = int(raw.get("consecutive_wins", 0))
             self._daily_trades       = int(raw.get("daily_trades", 0))
             trade_date_str           = raw.get("trade_date", "")
             if trade_date_str:
@@ -247,6 +251,7 @@ class RiskManager:
         payload = {
             "saved_at":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "consecutive_losses": self._consecutive_losses,
+            "consecutive_wins":   self._consecutive_wins,
             "daily_trades":       self._daily_trades,
             "trade_date":         self._trade_date.isoformat(),
             "positions": {
@@ -288,17 +293,19 @@ class RiskManager:
         self._daily_pnl  += pnl
         self._weekly_pnl += pnl
 
-        # Update consecutive-loss counter
+        # Update consecutive loss / win streak counters
         if pnl < 0:
+            self._consecutive_wins    = 0
             self._consecutive_losses += 1
             log.warning(
-                "[RiskManager] Loss recorded (PnL=%.4f USDT). "
-                "Consecutive losses: %d",
+                "[RiskManager] Loss recorded (PnL=%.4f USDT) | "
+                "consecutive losses: %d | consecutive wins reset to 0",
                 pnl, self._consecutive_losses,
             )
             if self._consecutive_losses >= _CONSEC_HALT_AT:
                 log.warning(
-                    "[RiskManager] %d consecutive losses — trading halted for today.",
+                    "[RiskManager] %d consecutive losses — trading halted until "
+                    "next winning trade.",
                     self._consecutive_losses,
                 )
         else:
@@ -308,7 +315,13 @@ class RiskManager:
                     "(was %d).",
                     self._consecutive_losses,
                 )
-            self._consecutive_losses = 0
+            self._consecutive_losses  = 0
+            self._consecutive_wins   += 1
+            if self._consecutive_wins >= _WIN_STREAK_BOOST_AT:
+                log.info(
+                    "[RiskManager] Win streak: %d wins — size boost active (up to %.1f%% risk).",
+                    self._consecutive_wins, _MAX_WIN_RISK_PCT * 100,
+                )
 
         self.save_positions()
 
@@ -346,7 +359,7 @@ class RiskManager:
         return max(0.0, -self._weekly_pnl / ref * 100)
 
     def consecutive_loss_halt_active(self) -> bool:
-        """Returns True when three or more consecutive losses have been recorded."""
+        """Returns True when four or more consecutive losses have been recorded."""
         return self._consecutive_losses >= _CONSEC_HALT_AT
 
     # ------------------------------------------------------------------ #
@@ -414,60 +427,115 @@ class RiskManager:
         is_friday:    bool  = False,
     ) -> Optional[float]:
         """
-        Returns base-asset quantity to buy, or None if no valid size exists.
+        Returns base-asset quantity to buy, or None if the trade should be skipped.
 
-        Sizing rules
-        ------------
-          risk_amount   = balance × 1 %
-          stop_distance = |entry_price − stop_loss|
-          raw_qty       = risk_amount / stop_distance
+        Sizing rules (all percentage-based — always proportional to balance)
+        ---------------------------------------------------------------------
+          Base risk       = balance × 1.0%
+          Win streak (3+) = balance × 1.1%  (capped at 1.5%)
+          Stop distance   = |entry_price − stop_loss|
+          raw_qty         = risk_amount / stop_distance
 
-          Friday modifier     : × 0.5
-          2 consecutive losses: × 0.5
-          Max position cap    : balance × 10 %
-          Min notional        : max($1, min_notional)
+          Friday               : × 0.50
+          2 consecutive losses : × 0.75  (−25%)
+          3 consecutive losses : × 0.50  (−50%)
+          4+ consecutive losses: skip — return None (day halt)
 
-        The `is_friday` flag is set automatically when the calling code
-        detects a Friday kill zone ("FRIDAY_REDUCED").
+          Max position cap : balance × 10% (hard ceiling)
+
+          Below exchange minimum → log "Position too small for current balance"
+          and return None.  Never force minimum.
+
+        The `is_friday` flag is set by the caller when kill_zone == "FRIDAY_REDUCED".
         """
         price_risk = abs(entry_price - stop_loss)
         if price_risk <= 0 or entry_price <= 0:
+            log.warning("[RiskManager] Invalid entry/SL prices — skipping sizing.")
             return None
 
-        risk_usdt = balance * MAX_RISK_PER_TRADE_PCT  # 1%
-        raw_qty   = risk_usdt / price_risk
-
-        # Friday: halve the position
-        if is_friday:
-            raw_qty *= 0.5
-            log.debug("[RiskManager] Friday sizing: position halved")
-
-        # Consecutive losses: halve again (stacks with Friday)
-        if _CONSEC_REDUCE_AT <= self._consecutive_losses < _CONSEC_HALT_AT:
-            raw_qty *= 0.5
+        # ── Halt check (4+ consecutive losses) ───────────────────────────────
+        losses = self._consecutive_losses
+        if losses >= _CONSEC_HALT_AT:
             log.warning(
-                "[RiskManager] %d consecutive losses — position size reduced by 50%%",
-                self._consecutive_losses,
+                "[RiskManager] %d consecutive losses — trade halted for today.",
+                losses,
+            )
+            return None
+
+        # ── Effective risk % (base 1%, boosted up to 1.5% on win streak) ─────
+        effective_risk_pct = MAX_RISK_PER_TRADE_PCT  # 1.0%
+        wins = self._consecutive_wins
+        if wins >= _WIN_STREAK_BOOST_AT:
+            effective_risk_pct = min(MAX_RISK_PER_TRADE_PCT * 1.10, _MAX_WIN_RISK_PCT)
+            log.debug(
+                "[RiskManager] Win streak %d — risk raised to %.2f%%",
+                wins, effective_risk_pct * 100,
             )
 
-        # Floor to exchange lot step
+        risk_usdt = balance * effective_risk_pct
+        raw_qty   = risk_usdt / price_risk
+
+        # ── Friday modifier ───────────────────────────────────────────────────
+        if is_friday:
+            raw_qty *= 0.50
+            log.debug("[RiskManager] Friday — position halved (×0.50).")
+
+        # ── Consecutive loss scaling ──────────────────────────────────────────
+        if losses == 3:
+            raw_qty *= 0.50
+            log.warning(
+                "[RiskManager] 3 consecutive losses — size reduced to 50%%"
+                " (%.2f USDT risk).",
+                raw_qty * price_risk,
+            )
+        elif losses == 2:
+            raw_qty *= 0.75
+            log.warning(
+                "[RiskManager] 2 consecutive losses — size reduced to 75%%"
+                " (%.2f USDT risk).",
+                raw_qty * price_risk,
+            )
+        # losses 0 or 1 → no reduction
+
+        # ── Floor to exchange lot step ────────────────────────────────────────
         if qty_step > 0:
             raw_qty = math.floor(raw_qty / qty_step) * qty_step
 
-        # Hard cap: never commit more than 10% of balance
+        # ── Hard cap: max 10% of balance ──────────────────────────────────────
         max_spend = balance * MAX_POSITION_PCT_OF_BALANCE
         if raw_qty * entry_price > max_spend:
             raw_qty = max_spend / entry_price
             if qty_step > 0:
                 raw_qty = math.floor(raw_qty / qty_step) * qty_step
+            log.debug(
+                "[RiskManager] Position capped at 10%% of balance "
+                "(%.2f USDT).", max_spend,
+            )
 
-        # Enforce minimum $1 notional
-        effective_min_notional = max(min_notional, 1.0)
-        if raw_qty * entry_price < effective_min_notional:
+        # ── Exchange minimum checks — skip if too small, never force ──────────
+        notional = raw_qty * entry_price
+        if notional < min_notional:
+            log.warning(
+                "[RiskManager] Position too small for current balance "
+                "(%.4f USDT notional < %.2f USDT minimum | balance=%.2f USDT).",
+                notional, min_notional, balance,
+            )
             return None
+
         if min_qty > 0 and raw_qty < min_qty:
+            log.warning(
+                "[RiskManager] Position too small for current balance "
+                "(qty %.8f < min lot %.8f | balance=%.2f USDT).",
+                raw_qty, min_qty, balance,
+            )
             return None
 
+        log.debug(
+            "[RiskManager] Sizing: balance=%.2f losses=%d wins=%d "
+            "risk_pct=%.2f%% friday=%s → qty=%.8f (%.4f USDT notional)",
+            balance, losses, wins, effective_risk_pct * 100,
+            is_friday, raw_qty, notional,
+        )
         return round(raw_qty, 8)
 
     # ------------------------------------------------------------------ #

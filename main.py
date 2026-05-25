@@ -145,11 +145,19 @@ def _handle_entry(
 ) -> Optional[float]:
     """
     Sizes and executes a market buy.
-    Uses the actual fill price from the order response (cummulativeQuoteQty / executedQty).
+    Always fetches fresh balance from MEXC immediately before sizing so the
+    position percentage is based on the real current equity, not a stale value.
     Returns the cost deducted from balance, or None on failure.
     """
     symbol     = signal.symbol
     is_friday  = signal.kill_zone == "FRIDAY_REDUCED"
+
+    # Fresh balance for accurate percentage-based sizing
+    try:
+        balance = api.get_usdt_balance()
+    except MEXCAPIError as exc:
+        log.error("[%s] Cannot fetch fresh balance for sizing: %s", symbol, exc)
+        return None
 
     qty = risk_mgr.calculate_quantity(
         balance=balance,

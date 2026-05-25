@@ -378,14 +378,23 @@ Respond ONLY in the required JSON format."""
     def _execute_entry(self, signal: TradeSignal) -> Optional[float]:
         """
         Size and execute a market buy. Returns cost in USDT or None on failure.
-        Mirrors the _handle_entry logic from main.py.
+        Always fetches a fresh balance immediately before sizing so the 1% risk
+        is calculated against the real current equity.
         """
         symbol    = signal.symbol
         sym_info  = self._ensure_sym_info(symbol)
         is_friday = signal.kill_zone == "FRIDAY_REDUCED"
 
+        # Fresh balance for accurate percentage-based sizing
+        try:
+            fresh_balance = self._api.get_usdt_balance()
+            self._balance = fresh_balance   # keep cached value in sync
+        except MEXCAPIError as exc:
+            log.error("[%s] Cannot fetch fresh balance for sizing: %s", symbol, exc)
+            return None
+
         qty = self._risk_mgr.calculate_quantity(
-            balance      = self._balance,
+            balance      = fresh_balance,
             entry_price  = signal.entry_price,
             stop_loss    = signal.stop_loss,
             qty_step     = sym_info["qty_step"],
