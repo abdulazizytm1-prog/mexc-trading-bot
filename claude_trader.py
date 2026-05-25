@@ -33,6 +33,7 @@ from typing import Any, Dict, Optional
 import anthropic
 
 import config
+import telegram_alerts as tg
 from coin_selector import CoinSelector
 from filters import check_atr_filter, check_correlation_guard, check_global_market, check_order_book
 from market_context import MarketContextPoller
@@ -169,6 +170,11 @@ class ClaudeTrader:
 
         self._sym_info_cache: Dict[str, dict] = {}
         self._balance: float = 0.0
+
+        # Daily trade outcome counters (reset each calendar day)
+        self._daily_wins:   int  = 0
+        self._daily_losses: int  = 0
+        self._summary_sent_date: Optional[str] = None   # ISO date of last summary
 
     # ---------------------------------------------------------------- #
     #  Internal helpers                                                 #
@@ -497,6 +503,7 @@ Respond ONLY in the required JSON format."""
                     self._risk_mgr.record_closed_pnl(pnl)
                     self._risk_mgr.handle_tp1_hit(symbol)
                     log.info("[%s] TP1 hit — sold %.6f (33%%) | PnL=+%.4f USDT", symbol, sell_qty, pnl)
+                    tg.tp_hit(symbol, 1, pnl, price)
 
                 elif reason == "TP2":
                     sell_qty = current_pos.partial_qty(2)
@@ -505,6 +512,7 @@ Respond ONLY in the required JSON format."""
                     self._risk_mgr.record_closed_pnl(pnl)
                     self._risk_mgr.handle_tp2_hit(symbol)
                     log.info("[%s] TP2 hit — sold %.6f (33%%) | PnL=+%.4f USDT | trailing active", symbol, sell_qty, pnl)
+                    tg.tp_hit(symbol, 2, pnl, price)
 
                 else:
                     remaining = current_pos.remaining_qty() or current_pos.quantity
@@ -519,8 +527,60 @@ Respond ONLY in the required JSON format."""
                         self._risk_mgr.weekly_loss_pct(),
                     )
 
+                    # Update daily outcome counters
+                    self._reset_daily_counters_if_new_day()
+                    ref = self._risk_mgr._session_start_balance or self._balance or 1.0
+                    pnl_pct = pnl / ref * 100
+
+                    if pnl >= 0:
+                        self._daily_wins += 1
+                        tg.trade_closed(symbol, price, pnl, pnl_pct, reason, self._balance)
+                    else:
+                        self._daily_losses += 1
+                        tg.sl_hit(symbol, abs(pnl), abs(pnl_pct), price)
+                        tg.trade_closed(symbol, price, pnl, pnl_pct, reason, self._balance)
+
             except MEXCAPIError as exc:
                 log.error("[%s] Error executing exit: %s", symbol, exc)
+
+    # ---------------------------------------------------------------- #
+    #  Daily summary                                                    #
+    # ---------------------------------------------------------------- #
+
+    def _reset_daily_counters_if_new_day(self) -> None:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Re-use the same sentinel to detect the day roll-over
+        if not hasattr(self, "_counter_date"):
+            self._counter_date: str = today
+        if today != self._counter_date:
+            self._daily_wins   = 0
+            self._daily_losses = 0
+            self._counter_date = today
+
+    def _maybe_send_daily_summary(self) -> None:
+        """Send the daily summary once per day at 23:55–23:59 UTC."""
+        now   = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%d")
+        if now.hour != 23 or now.minute < 55:
+            return
+        if self._summary_sent_date == today:
+            return   # already sent today
+
+        trades = self._risk_mgr._daily_trades
+        pnl    = self._risk_mgr.daily_pnl
+        ref    = self._risk_mgr._session_start_balance or self._balance
+        pnl_pct = (pnl / ref * 100) if ref > 0 else 0.0
+
+        tg.daily_summary(
+            trades   = trades,
+            wins     = self._daily_wins,
+            losses   = self._daily_losses,
+            pnl_usdt = pnl,
+            pnl_pct  = pnl_pct,
+            balance  = self._balance,
+        )
+        self._summary_sent_date = today
+        log.info("[ClaudeTrader] Daily summary sent to Telegram.")
 
     # ---------------------------------------------------------------- #
     #  Main loop                                                        #
@@ -599,6 +659,10 @@ Respond ONLY in the required JSON format."""
                     time.sleep(_LOOP_INTERVAL)
                     continue
 
+                # ── Always: daily counter reset + summary check ─────────
+                self._reset_daily_counters_if_new_day()
+                self._maybe_send_daily_summary()
+
                 # ── Always: check exits ──────────────────────────────────
                 self._handle_exits()
 
@@ -619,6 +683,8 @@ Respond ONLY in the required JSON format."""
                 market_ok = check_global_market(ctx)
                 if not market_ok["tradeable"]:
                     log.info("[ClaudeTrader][MarketFilter] %s", market_ok["reason"])
+                    btc_dom = getattr(ctx, "btc_dominance", None) if ctx else None
+                    tg.market_filter(market_ok["reason"], btc_dom)
                     time.sleep(_LOOP_INTERVAL)
                     continue
 
@@ -757,6 +823,11 @@ Respond ONLY in the required JSON format."""
                                 symbol, decision, confidence,
                                 response.get("reason", ""),
                             )
+                            tg.no_trade(
+                                symbol,
+                                response.get("reason", "Claude rejected signal"),
+                                signal.score,
+                            )
                             continue
 
                         # ── h. Execute ────────────────────────────────────
@@ -770,6 +841,21 @@ Respond ONLY in the required JSON format."""
                             self._balance -= cost
                             entries_this_cycle += 1
                             self._log_trade(signal, response, fill_price, quantity, order_id)
+
+                            # Alert: trade opened
+                            risk = fill_price - signal.stop_loss
+                            rr   = round((signal.tp3 - fill_price) / risk, 1) if risk > 0 else 3
+                            tg.trade_opened(
+                                symbol    = symbol,
+                                entry     = fill_price,
+                                sl        = signal.stop_loss,
+                                tp1       = signal.tp1,
+                                tp2       = signal.tp2,
+                                tp3       = signal.tp3,
+                                score     = signal.score,
+                                rr        = rr,
+                                kill_zone = signal.kill_zone,
+                            )
 
                     except MEXCAPIError as exc:
                         log.error("[%s] API error during scan: %s", symbol, exc)
@@ -797,6 +883,7 @@ Respond ONLY in the required JSON format."""
 
             except Exception as exc:
                 log.exception("[ClaudeTrader] Unhandled exception in main loop: %s", exc)
+                tg.system_error(str(exc))
                 time.sleep(30)
 
 
