@@ -8,6 +8,19 @@ from typing import Any, Dict, List, Optional, Set
 
 log = logging.getLogger(__name__)
 
+# Dedicated file logger for API errors — appends to error.log.
+# Configured once at module import; safe to call from any thread.
+_err_log = logging.getLogger(f"{__name__}.errors")
+if not _err_log.handlers:
+    _efh = logging.FileHandler("error.log", encoding="utf-8")
+    _efh.setLevel(logging.WARNING)
+    _efh.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    _err_log.addHandler(_efh)
+    _err_log.propagate = True   # also flows through root → trading_bot.log
+
 from config import API_KEY, API_SECRET, BASE_URL, RECV_WINDOW
 
 
@@ -91,8 +104,9 @@ class MEXCSpotAPI:
         signs an empty string and the signatures never match → 700004.
         """
         url = f"{BASE_URL}{endpoint}"
-        # Only private requests carry the API key header.
         headers = {"X-MEXC-APIKEY": self.api_key} if auth else {}
+        last_exc: Optional[Exception] = None
+
         for attempt in range(self.MAX_RETRIES):
             try:
                 resp = self.session.request(
@@ -101,30 +115,67 @@ class MEXCSpotAPI:
                     params=query_params or None,   # → URL query string
                     data=body_params or None,       # → form-encoded body
                     headers=headers,
-                    timeout=10,
+                    timeout=5,
                 )
 
                 if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("Retry-After", self.RETRY_BACKOFF * (attempt + 1)))
-                    time.sleep(retry_after)
+                    _err_log.warning(
+                        "429 rate-limit: %s %s (attempt %d/%d) — sleeping 60s",
+                        method, endpoint, attempt + 1, self.MAX_RETRIES,
+                    )
+                    time.sleep(60)
                     continue
 
                 data = resp.json()
 
                 if not resp.ok:
-                    raise MEXCAPIError(
+                    exc = MEXCAPIError(
                         resp.status_code,
                         data.get("code", -1),
                         data.get("msg", resp.text),
                     )
+                    _err_log.error(
+                        "%s %s → HTTP %d code=%s msg=%s",
+                        method, endpoint, resp.status_code,
+                        data.get("code", -1), data.get("msg", resp.text),
+                    )
+                    raise exc
+
                 return data
 
-            except (requests.ConnectionError, requests.Timeout):
-                if attempt == self.MAX_RETRIES - 1:
-                    raise
+            except MEXCAPIError:
+                raise   # already logged; propagate immediately
+
+            except requests.Timeout as exc:
+                _err_log.warning(
+                    "Timeout: %s %s (attempt %d/%d) — retrying in 5s",
+                    method, endpoint, attempt + 1, self.MAX_RETRIES,
+                )
+                last_exc = exc
+                time.sleep(5)
+
+            except requests.ConnectionError as exc:
+                wait = self.RETRY_BACKOFF * (2 ** attempt)
+                _err_log.warning(
+                    "ConnectionError: %s %s (attempt %d/%d) — retrying in %.0fs",
+                    method, endpoint, attempt + 1, self.MAX_RETRIES, wait,
+                )
+                last_exc = exc
+                time.sleep(wait)
+
+            except Exception as exc:
+                _err_log.error(
+                    "Unexpected error: %s %s (attempt %d/%d): %s",
+                    method, endpoint, attempt + 1, self.MAX_RETRIES, exc,
+                )
+                last_exc = exc
                 time.sleep(self.RETRY_BACKOFF * (2 ** attempt))
 
-        raise RuntimeError(f"Max retries exceeded for {endpoint}")
+        _err_log.error(
+            "Max retries (%d) exceeded for %s %s — last error: %s",
+            self.MAX_RETRIES, method, endpoint, last_exc,
+        )
+        raise MEXCAPIError(-1, -1, f"Max retries exceeded for {endpoint}: {last_exc}")
 
     def _get(self, endpoint: str, params: Optional[Dict] = None, signed: bool = False) -> Any:
         params = dict(params or {})

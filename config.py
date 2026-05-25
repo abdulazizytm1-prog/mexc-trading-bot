@@ -1,25 +1,37 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
-# API credentials — set these in .env
-API_KEY: str = os.getenv("MEXC_API_KEY", "")
-API_SECRET: str = os.getenv("MEXC_API_SECRET", "")
+# MEXC credentials — set MEXC_API_KEY and MEXC_SECRET in .env
+API_KEY:    str = os.getenv("MEXC_API_KEY", "")
+API_SECRET: str = os.getenv("MEXC_SECRET",  "")   # was MEXC_API_SECRET — fixed
+
+# Coinranking Professional API key — override via COINRANKING_API_KEY in .env
+COINRANKING_API_KEY: str = os.getenv(
+    "COINRANKING_API_KEY",
+    "coinranking7dea2dbc3f9aa62ac8ff38f1ff3a6542f97670a8ee02e776",
+)
 
 BASE_URL = "https://api.mexc.com"
 RECV_WINDOW = 5000
 
 QUOTE_CURRENCY = "USDT"
 
-# Dynamic pair selection (replaces hardcoded list)
-COIN_SELECTOR_REFRESH_HOURS = 4   # How often to re-score and rebuild the pair list
-COINGECKO_PAGES = 2               # 2 × 250 = 500 coins fetched from CoinGecko
-MIN_SELECTED_PAIRS = 5            # Supplement with fallback if fewer than this qualify
-MAX_SELECTED_PAIRS = 20           # Maximum pairs in the active trading universe
-MIN_MEXC_24H_VOLUME_USD = 500_000 # Drop any pair with < $500k 24h USDT volume on MEXC
+# Dynamic pair selection (Coinranking Professional)
+COIN_SELECTOR_REFRESH_HOURS = 4    # Rebuild pair universe every N hours
+COINRANKING_PAGES = 2              # 2 × 100 = 200 coins per refresh
+MIN_SELECTED_PAIRS = 5             # Supplement with fallbacks if fewer qualify
+MAX_SELECTED_PAIRS = 20            # Hard cap on active trading pairs
 
-# Used when CoinGecko or MEXC APIs are unreachable during a refresh
+# Coin quality gate — Coinranking 10-point scoring system
+MIN_COIN_SCORE       = 7           # Coins scoring < 7/10 are never traded
+MIN_MARKET_CAP_USD   = 500_000_000 # Minimum market cap: $500M
+MIN_MEXC_24H_VOLUME_USD = 50_000_000  # Minimum 24h USDT volume on MEXC: $50M
+MAX_CHANGE_PCT       = 20.0        # Maximum |24h change %| before a coin is skipped
+
+# Used when Coinranking or MEXC APIs are unreachable during a refresh
 FALLBACK_PAIRS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
     "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
@@ -41,10 +53,33 @@ MIN_SIGNAL_STRENGTH = 0.25  # Reject signals weaker than this (0–1 scale)
 TAKE_PROFIT_RR = 2.0        # Risk-reward ratio for take profit
 
 # Risk management
-MAX_RISK_PER_TRADE_PCT = 0.01   # 1% of account balance at risk per trade
-DAILY_LOSS_CAP_PCT = 0.05       # Stop trading for the day after 5% drawdown
-MAX_OPEN_POSITIONS = 3          # Concurrent open positions cap
-MAX_POSITION_PCT_OF_BALANCE = 0.10  # Hard cap: never spend > 10% on one trade
+MAX_RISK_PER_TRADE_PCT      = 0.01   # 1% of account balance at risk per trade
+DAILY_LOSS_CAP_PCT          = 0.03   # Halt new entries after 3% intraday loss
+WEEKLY_LOSS_CAP_PCT         = 0.08   # Halt new entries after 8% weekly loss
+MAX_OPEN_POSITIONS          = 2      # Max simultaneous open positions
+MAX_DAILY_TRADES            = 2      # Max new entries per calendar day
+MAX_POSITION_PCT_OF_BALANCE = 0.10   # Hard cap: never spend > 10% on one trade
 
 # Loop timing
 LOOP_INTERVAL_SECONDS = 60  # Main loop cadence in seconds
+
+# Market context (Coinranking /v2/stats polling)
+MARKET_CONTEXT_REFRESH_MIN = 30    # Poll /v2/stats every N minutes
+BTC_DOM_ALTCOIN_RESTRICT   = 55.0  # BTC dominance % above which altcoin entries are reduced
+MARKET_DROP_NO_TRADE_PCT   = -3.0  # Global 24h mcap change below which no new entries open
+
+# HTF bias filter
+HTF_TIMEFRAME    = "4h"
+HTF_CANDLE_LIMIT = 50
+
+# Session filter (UTC hours)
+SESSION_FILTER_ENABLED = True
+LONDON_OPEN  = 7
+LONDON_CLOSE = 12
+NY_OPEN      = 13
+NY_CLOSE     = 17
+
+# Trailing stop / break-even
+BREAKEVEN_R    = 1.0   # Move SL to entry when price reaches entry + 1× risk
+TRAIL_START_R  = 1.5   # Start trailing when price reaches entry + 1.5× risk
+ATR_TRAIL_MULT = 1.0   # Trail distance = ATR × this multiplier

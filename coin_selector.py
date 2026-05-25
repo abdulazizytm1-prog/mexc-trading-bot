@@ -1,211 +1,289 @@
 """
-Dynamic coin selection with halal filtering.
+Dynamic coin selection — Coinranking Professional API + MEXC cross-reference.
 
-Flow every COIN_SELECTOR_REFRESH_HOURS:
-  1. Fetch up to 500 coins from CoinGecko ordered by 24h USD volume
-  2. Drop every coin that matches the haram symbol/name rules below
-  3. Keep only coins whose USDT pair is active on MEXC spot
-  4. Sort survivors by their MEXC 24h USDT volume
-  5. Drop any pair below MIN_MEXC_24H_VOLUME_USD
-  6. Return the top MAX_SELECTED_PAIRS; supplement with FALLBACK_PAIRS
-     if fewer than MIN_SELECTED_PAIRS qualify
+Refresh pipeline (every COIN_SELECTOR_REFRESH_HOURS):
+  1.  Fetch 200 coins from Coinranking ordered by 24h USD volume
+  2.  Drop obvious haram/junk coins via symbol + name quick-filter
+  3.  Drop coins flagged isWrappedTrustless or lowVolume by Coinranking
+  4.  Apply fast numeric gates: mcap ≥ $500M, volume ≥ $50M, |change| ≤ 20%
+  5.  Cross-reference with MEXC active USDT spot pairs
+  6.  Fetch /coin/{uuid} detail for top 40 candidates (tags, supply, exchange count)
+  7.  Fetch /coin/{uuid}/history (7d) for top 40 — weekly trend check
+  8.  Fetch /exchanges once — build reputable-exchange reference set
+  9.  Apply full halal filter (tag-based: stablecoin, wrapped, meme, lending, …)
+  10. Score each candidate 0–10 (see _score_coin)
+  11. Keep only score ≥ MIN_COIN_SCORE; sort by score desc, then MEXC volume desc
+  12. Cap at MAX_SELECTED_PAIRS; supplement with FALLBACK_PAIRS if too few pass
+  13. Save result to active_pairs.json
+
+10-point scoring
+----------------
+  +2  market cap > $1B        (large cap, lower manipulation risk)
+  +1  market cap $500M–$1B    (mid cap)
+  +2  24h volume > $100M      (high liquidity)
+  +1  24h volume $50M–$100M   (medium liquidity)
+  +1  listed on 10+ exchanges (broad distribution, harder to manipulate)
+  +1  |change_24h| < 15%      (not in active pump/dump)
+  +1  circulating ≥ 90% of total supply (no large unlock overhang)
+  +1  tags include L1/L2/infrastructure narrative
+  +1  Coinranking tier = 1    (platform's own quality gate)
+  +1  sparkline swing < 20%   (intra-day price consistency)
+  ──
+  10  maximum
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 import time
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set
-
-import requests as _http
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import config
+from coin_ranker import CoinRankingClient
 
 log = logging.getLogger(__name__)
 
+_ACTIVE_PAIRS_PATH = Path(__file__).parent / "active_pairs.json"
 
-# ------------------------------------------------------------------ #
-#  Haram filter                                                        #
-# ------------------------------------------------------------------ #
+# ─────────────────────────────────────────────────────────────────────────────
+#  Halal filter constants
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Exact CoinGecko symbol matches (uppercased before comparison).
-# Covers the three categories the user specified — gambling/lottery,
-# adult content / alcohol / weapons, and interest-based (riba) DeFi.
-HARAM_SYMBOLS: Set[str] = {
-    # --- Gambling / Betting / Lottery ---
-    "BET",       # BetFury and others
-    "DICE",      # PolyDice / Etheroll
-    "WINK",      # WINk gambling platform
-    "WIN",       # WINk (alt ticker)
-    "ROLL",      # Polyroll / RollBit
-    "LOTTO",
-    "JACKPOT",
-    "LUCKY",
-    "SPIN",
-    "POKER",
-    "BACCARAT",
-    "SLOT",
-    "CASINO",
-    "ROULETTE",
-    "SHUFFLE",   # Shuffle.com casino
-    "CSGOROLL",
-
-    # --- Adult content ---
-    "XXX",
-    "PORN",
-    "NSFW",
-    "ADULT",
-    "SEXC",
-
-    # --- Alcohol ---
-    "WINE",
-    "BEER",
-    "BREW",
-    "WHISKY",
-    "VODKA",
-    "RUM",
-    "GIN",
-    "SAKE",
-
-    # --- Weapons / Violence ---
-    "GUN",
-    "RIFLE",
-    "BULLET",
-    "BOMB",
-    "AMMO",
-
-    # --- Interest / Riba — lending & yield protocols ---
-    # (earning/paying interest is riba; governance tokens that profit
-    # from interest income on the protocol are treated the same way)
-    "AAVE",      # Aave lending — explicitly mentioned by user
-    "LEND",      # Old Aave token
-    "COMP",      # Compound Finance — explicitly mentioned
-    "MKR",       # MakerDAO stability fee (CDP interest) — explicitly mentioned
-    "DAI",       # MakerDAO stablecoin: minted only via CDPs that charge a
-                 # stability fee (riba); the token itself is backed by an
-                 # interest-generating mechanism — explicitly mentioned by user
-    "NEXO",      # Centralised crypto lending with interest
-    "CEL",       # Celsius Network
-    "XVS",       # Venus Protocol (BSC lending)
-    "CREAM",     # Cream Finance
-    "ALPACA",    # Alpaca Finance (leveraged yield farming)
-    "EULER",     # Euler Finance
-    "RDNT",      # Radiant Capital
-    "QI",        # BENQI lending (Avalanche)
-    "STRIKE",    # Strike (lending)
-    "IRON",      # Iron Finance
-    "SILO",      # Silo Finance
-    "MORPHO",    # Morpho lending
-    "FLUID",     # Fluid lending
-    "EXACTLY",   # Exactly Finance
-    "ANGLE",     # Angle Protocol (interest-bearing stablecoins)
-    "NOTIONAL",  # Notional Finance (fixed-rate lending)
-    "TERM",      # Term Finance
-    "MAPLE",     # Maple Finance (institutional lending)
-    "GOLDFINCH", # Goldfinch (lending)
-    "CLEARPOOL", # Clearpool
-    "TRUEFI",    # TrueFi lending
+# Tags returned by Coinranking that make a coin ineligible.
+HARAM_TAGS: Set[str] = {
+    "stablecoin",   # USDT, USDC, DAI, FRAX, etc. — no price movement
+    "wrapped",      # WBTC, WETH, etc. — synthetic mirrors, not real assets
+    "meme",         # pure speculation with no utility (user's request)
+    # Note: "defi" is NOT excluded wholesale — many defi infra tokens are halal.
+    # Lending-specific tokens are caught by HARAM_SYMBOLS below.
 }
 
-# Substring matches run against coin name (lowercased).
-# Use narrow, unambiguous strings to minimise false positives.
-HARAM_NAME_KEYWORDS: List[str] = [
-    # Gambling
-    "gambling", "casino", " betting", "lottery", "lotto", "jackpot",
-    "slot machine", "poker room", "baccarat", "roulette",
-    # Adult
-    "adult content", "pornograph", "erotic", " xxx ",
+# Tags that POSITIVELY contribute to narrative score.
+NARRATIVE_TAGS: Set[str] = {
+    "layer-1", "layer-2", "web3",
+    "infrastructure",   # not in official list but included defensively
+    "dao",              # governance tokens with real utility
+    "nft",              # NFT infrastructure (marketplaces, tooling)
+    "dex",              # decentralised exchange tokens
+    "exchange",         # exchange utility tokens (where non-interest-bearing)
+    "privacy",          # privacy coins / infrastructure
+    "metaverse",        # metaverse infrastructure
+    "gaming",           # blockchain gaming platforms
+}
+
+# Exact ticker symbol block-list (uppercased before comparison).
+HARAM_SYMBOLS: Set[str] = {
+    # Gambling / betting / lottery
+    "BET", "DICE", "WINK", "WIN", "ROLL", "LOTTO", "JACKPOT",
+    "LUCKY", "SPIN", "POKER", "BACCARAT", "SLOT", "CASINO",
+    "ROULETTE", "SHUFFLE", "CSGOROLL",
+    # Adult content
+    "XXX", "PORN", "NSFW", "ADULT", "SEXC",
     # Alcohol
+    "WINE", "BEER", "BREW", "WHISKY", "VODKA", "RUM", "GIN", "SAKE",
+    # Weapons / violence
+    "GUN", "RIFLE", "BULLET", "BOMB", "AMMO",
+    # Interest / riba — lending & yield protocols (user-specified + known)
+    "AAVE", "LEND", "COMP", "MKR", "FRAX", "CRV",
+    "DAI", "NEXO", "CEL", "XVS", "CREAM", "ALPACA",
+    "EULER", "RDNT", "QI", "STRIKE", "IRON", "SILO",
+    "MORPHO", "FLUID", "EXACTLY", "ANGLE", "NOTIONAL",
+    "TERM", "MAPLE", "GOLDFINCH", "CLEARPOOL", "TRUEFI",
+    # Stablecoins — price-pegged, no SMC signal possible
+    "USDT", "USDC", "BUSD", "TUSD", "USDP", "GUSD",
+    "LUSD", "SUSD", "EUSD", "FDUSD", "PYUSD", "USDD",
+    "USDE", "CEUR", "CUSD",
+    # Common wrapped tokens (Coinranking's isWrappedTrustless also catches these)
+    "WBTC", "WETH", "WBNB", "WSOL", "WAVAX", "WMATIC", "WFTM",
+    "WSTETH", "CBBTC", "CBETH",
+}
+
+# Substring matches against lowercased coin name.
+HARAM_NAME_KEYWORDS: List[str] = [
+    "gambling", "casino", " betting", "lottery", "lotto", "jackpot",
+    "slot machine", "poker", "baccarat", "roulette",
+    "adult content", "pornograph", "erotic",
     "alcohol", " brewery", "distillery",
-    # Weapons
     "firearms", "ammunition", "arms dealer",
-    # Interest / lending
-    "lending protocol", "borrowing protocol", "interest bearing",
-    "interest-bearing", "fixed-rate lending", "undercollateral",
-    "leveraged yield",
+    "lending protocol", "borrowing protocol",
+    "interest bearing", "interest-bearing",
+    "fixed-rate lending", "undercollateral", "leveraged yield",
 ]
 
 
-def _is_haram(symbol: str, name: str) -> bool:
-    """Returns True if the coin should be excluded on halal grounds."""
+def _is_haram_basic(symbol: str, name: str) -> bool:
+    """Fast check — runs on the list endpoint data before any detail fetch."""
     if symbol.upper() in HARAM_SYMBOLS:
         return True
     name_lower = name.lower()
     return any(kw in name_lower for kw in HARAM_NAME_KEYWORDS)
 
 
-# ------------------------------------------------------------------ #
-#  CoinGecko integration                                               #
-# ------------------------------------------------------------------ #
-
-_CG_BASE = "https://api.coingecko.com/api/v3"
-_CG_TIMEOUT = 20
-_CG_PAGE_PAUSE = 2.5   # seconds between page requests (free-tier rate limit)
+def _is_haram_by_tags(tags: List[str]) -> bool:
+    """Tag-based check — runs only after coin detail is fetched."""
+    tag_set = {t.lower() for t in tags}
+    return bool(tag_set & HARAM_TAGS)
 
 
-def _cg_markets_page(page: int, per_page: int = 250) -> Optional[List[Dict]]:
-    url = f"{_CG_BASE}/coins/markets"
-    params = {
-        "vs_currency": "usd",
-        "order": "volume_desc",
-        "per_page": per_page,
-        "page": page,
-        "sparkline": "false",
-        "price_change_percentage": "24h",
-    }
-    try:
-        resp = _http.get(url, params=params, timeout=_CG_TIMEOUT,
-                         headers={"Accept": "application/json"})
-        if resp.status_code == 429:
-            log.warning("[CoinGecko] Rate limited — waiting 65s before retry")
-            time.sleep(65)
-            resp = _http.get(url, params=params, timeout=_CG_TIMEOUT,
-                             headers={"Accept": "application/json"})
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as exc:
-        log.error("[CoinGecko] Page %d failed: %s", page, exc)
-        return None
+# ─────────────────────────────────────────────────────────────────────────────
+#  Scoring helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
-
-def fetch_coingecko_top(pages: int = config.COINGECKO_PAGES) -> List[Dict]:
+def _sparkline_swing_pct(sparkline: List) -> float:
     """
-    Returns up to pages × 250 coins sorted by 24-hour USD volume (descending).
-    Each dict includes: symbol, name, total_volume, price_change_percentage_24h.
+    Returns the percentage difference between the min and max price in
+    the sparkline array.  None / empty entries are skipped.
     """
-    coins: List[Dict] = []
-    for page in range(1, pages + 1):
-        data = _cg_markets_page(page)
-        if not data:
-            break
-        coins.extend(data)
-        if page < pages:
-            time.sleep(_CG_PAGE_PAUSE)
-    log.info("[CoinGecko] Fetched %d coins across %d page(s)", len(coins), pages)
-    return coins
+    prices = [float(p) for p in sparkline if p is not None]
+    if len(prices) < 2:
+        return 0.0
+    lo, hi = min(prices), max(prices)
+    if lo <= 0:
+        return 100.0
+    return (hi - lo) / lo * 100.0
 
 
-# ------------------------------------------------------------------ #
-#  Coin selector                                                       #
-# ------------------------------------------------------------------ #
+def _weekly_trend_positive(history: Optional[List[Dict]]) -> bool:
+    """
+    Returns True if the 7-day closing price is higher than the opening price
+    (simple uptrend check based on /coin/{uuid}/history data).
+    """
+    if not history or len(history) < 2:
+        return False
+    prices = [float(h["price"]) for h in history if h.get("price") is not None]
+    if len(prices) < 2:
+        return False
+    return prices[-1] > prices[0]   # last > first (newest last in CR response)
+
+
+@dataclass
+class ScoreBreakdown:
+    mcap:      int = 0   # 0/1/2
+    volume:    int = 0   # 0/1/2
+    exchanges: int = 0   # 0/1
+    stability: int = 0   # 0/1
+    supply:    int = 0   # 0/1
+    narrative: int = 0   # 0/1
+    tier:      int = 0   # 0/1
+    sparkline: int = 0   # 0/1
+
+    @property
+    def total(self) -> int:
+        return (self.mcap + self.volume + self.exchanges +
+                self.stability + self.supply + self.narrative +
+                self.tier + self.sparkline)
+
+
+def _score_coin(
+    list_data: Dict,
+    detail: Optional[Dict],
+    history: Optional[List[Dict]],
+) -> ScoreBreakdown:
+    """
+    Scores a coin 0–10 using list + detail + history data.
+    Missing data (detail/history not yet fetched) scores 0 on those axes.
+    """
+    bd = ScoreBreakdown()
+
+    mcap   = float(list_data.get("marketCap")  or 0)
+    volume = float(list_data.get("24hVolume")   or 0)
+    change = float(list_data.get("change")      or 0)
+    tier   = int(list_data.get("tier")          or 2)
+    spark  = list_data.get("sparkline")         or []
+
+    # ── Market cap (max 2) ────────────────────────────────────────────────────
+    if mcap > 1_000_000_000:
+        bd.mcap = 2
+    elif mcap >= 500_000_000:
+        bd.mcap = 1
+
+    # ── 24h volume (max 2) ────────────────────────────────────────────────────
+    if volume > 100_000_000:
+        bd.volume = 2
+    elif volume >= 50_000_000:
+        bd.volume = 1
+
+    # ── Price stability (max 1) ───────────────────────────────────────────────
+    if abs(change) < 15.0:
+        bd.stability = 1
+
+    # ── Coinranking tier (max 1) ──────────────────────────────────────────────
+    if tier == 1:
+        bd.tier = 1
+
+    # ── Sparkline intra-day swing (max 1) ─────────────────────────────────────
+    if _sparkline_swing_pct(spark) < 20.0:
+        bd.sparkline = 1
+
+    # ── Detail-dependent axes ─────────────────────────────────────────────────
+    if detail:
+        # Exchange distribution (max 1)
+        if int(detail.get("numberOfExchanges") or 0) >= 10:
+            bd.exchanges = 1
+
+        # Supply health — circulating ≥ 90% of total (max 1)
+        supply = detail.get("supply") or {}
+        circulating = float(supply.get("circulating") or 0)
+        total        = float(supply.get("total")       or 0)
+        if circulating > 0 and total > 0 and (circulating / total) >= 0.90:
+            bd.supply = 1
+
+        # Narrative tags — L1 / L2 / infrastructure (max 1)
+        tags = {t.lower() for t in (detail.get("tags") or [])}
+        if tags & NARRATIVE_TAGS:
+            bd.narrative = 1
+
+    return bd
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Scored coin — what CoinSelector stores internally
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class ScoredCoin:
+    mexc_symbol:  str
+    symbol:       str
+    name:         str
+    uuid:         str
+    score:        int
+    breakdown:    ScoreBreakdown
+    tier:         int
+    market_cap:   float
+    volume_24h:   float
+    change_24h:   float
+    price_usd:    float
+    n_exchanges:  int
+    tags:         List[str] = field(default_factory=list)
+    weekly_up:    bool = False   # True if 7d history shows uptrend
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CoinSelector
+# ─────────────────────────────────────────────────────────────────────────────
 
 class CoinSelector:
     """
-    Maintains a dynamic, halal-filtered list of USDT spot pairs to trade.
+    Maintains a dynamic, halal-filtered, quality-scored list of MEXC USDT
+    spot pairs.  Call `get_pairs()` each loop — returns the cached list and
+    triggers a refresh only when the 4-hour TTL has elapsed.
 
-    Call `get_pairs()` every loop iteration — it returns the cached list
-    and triggers a background-style refresh only when the 4-hour window
-    has elapsed (or on first call).  If all external APIs fail during a
-    refresh the previous list (or FALLBACK_PAIRS) is kept intact.
+    Thread-safety: not thread-safe; designed for a single-threaded trading loop.
     """
 
     def __init__(self, mexc_api) -> None:
-        self._api = mexc_api
-        self._pairs: List[str] = []
+        self._api            = mexc_api
+        self._pairs:  List[str]         = []
+        self._scores: Dict[str, float]  = {}   # mexc_symbol → 0.0–10.0
+        self._coins:  List[ScoredCoin]  = []   # full metadata for dashboard
         self._last_refresh: Optional[datetime] = None
 
-    # ---------------------------------------------------------------- #
+    # ── TTL ───────────────────────────────────────────────────────────────────
 
     def _is_due(self) -> bool:
         if not self._pairs or self._last_refresh is None:
@@ -214,110 +292,319 @@ class CoinSelector:
             hours=config.COIN_SELECTOR_REFRESH_HOURS
         )
 
-    def refresh(self) -> List[str]:
-        """Full refresh; returns the newly selected pair list."""
-        log.info("[CoinSelector] Starting pair-list refresh…")
+    # ── Persistence ───────────────────────────────────────────────────────────
 
-        # ── Step 1: CoinGecko top coins by 24h volume ───────────────
-        cg_coins = fetch_coingecko_top()
-        if not cg_coins:
-            log.warning("[CoinSelector] CoinGecko unavailable — keeping existing pairs.")
+    def _save_active_pairs(self, coins: List[ScoredCoin]) -> None:
+        """Writes the current universe to active_pairs.json."""
+        next_refresh = (self._last_refresh or datetime.now()) + timedelta(
+            hours=config.COIN_SELECTOR_REFRESH_HOURS
+        )
+        payload = {
+            "refreshed_at":  (self._last_refresh or datetime.now()).isoformat(timespec="seconds"),
+            "next_refresh":  next_refresh.isoformat(timespec="seconds"),
+            "total_pairs":   len(coins),
+            "pairs": [
+                {
+                    "rank":           i + 1,
+                    "mexc_symbol":    c.mexc_symbol,
+                    "symbol":         c.symbol,
+                    "name":           c.name,
+                    "uuid":           c.uuid,
+                    "score":          c.score,
+                    "score_breakdown": asdict(c.breakdown),
+                    "tier":           c.tier,
+                    "market_cap_usd": round(c.market_cap),
+                    "volume_24h_usd": round(c.volume_24h),
+                    "change_24h_pct": round(c.change_24h, 2),
+                    "price_usd":      c.price_usd,
+                    "n_exchanges":    c.n_exchanges,
+                    "tags":           c.tags,
+                    "weekly_uptrend": c.weekly_up,
+                }
+                for i, c in enumerate(coins)
+            ],
+        }
+        try:
+            _ACTIVE_PAIRS_PATH.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            log.info("[CoinSelector] Saved %d pairs → %s", len(coins), _ACTIVE_PAIRS_PATH.name)
+        except OSError as exc:
+            log.warning("[CoinSelector] Could not save active_pairs.json: %s", exc)
+
+    # ── Full refresh ──────────────────────────────────────────────────────────
+
+    def refresh(self) -> List[str]:
+        """Runs the 13-step pipeline and returns the updated pair list."""
+        t0 = time.monotonic()
+        log.info("[CoinSelector] ── Starting refresh ──────────────────────────")
+
+        client = CoinRankingClient()
+
+        # ── Step 1: Fetch 200 coins from Coinranking ──────────────────────────
+        raw_coins = client.get_all_coins(
+            pages=getattr(config, "COINRANKING_PAGES", 2), limit=100
+        )
+        if not raw_coins:
+            log.warning("[CoinSelector] Coinranking unavailable — keeping existing pairs.")
+            return self._pairs or list(config.FALLBACK_PAIRS)
+        log.info("[CoinSelector] Step 1: %d coins from Coinranking", len(raw_coins))
+
+        # ── Step 2: Symbol + name haram quick-filter ─────────────────────────
+        clean = [
+            c for c in raw_coins
+            if not _is_haram_basic(c.get("symbol", ""), c.get("name", ""))
+        ]
+        log.info("[CoinSelector] Step 2: %d → %d after basic haram filter",
+                 len(raw_coins), len(clean))
+
+        # ── Step 3: Drop wrapped / low-volume flags ───────────────────────────
+        clean = [
+            c for c in clean
+            if not c.get("isWrappedTrustless") and not c.get("lowVolume")
+        ]
+        log.info("[CoinSelector] Step 3: %d after dropping wrapped/lowVolume",
+                 len(clean))
+
+        # ── Step 4: Numeric gates (mcap, volume, change) ─────────────────────
+        min_mcap   = getattr(config, "MIN_MARKET_CAP_USD",     500_000_000)
+        min_vol    = getattr(config, "MIN_MEXC_24H_VOLUME_USD", 50_000_000)
+        max_change = getattr(config, "MAX_CHANGE_PCT",          20.0)
+
+        eligible = [
+            c for c in clean
+            if float(c.get("marketCap")  or 0) >= min_mcap
+            and float(c.get("24hVolume") or 0) >= min_vol
+            and abs(float(c.get("change") or 0)) <= max_change
+        ]
+        log.info("[CoinSelector] Step 4: %d → %d after mcap/volume/change gates",
+                 len(clean), len(eligible))
+
+        # ── Step 5: MEXC cross-reference ──────────────────────────────────────
+        try:
+            mexc_syms: Set[str] = self._api.get_all_usdt_spot_symbols()
+            log.info("[CoinSelector] Step 5: %d active USDT pairs on MEXC", len(mexc_syms))
+        except Exception as exc:
+            log.error("[CoinSelector] MEXC symbol fetch failed: %s", exc)
+            mexc_syms = set()
+
+        on_mexc = [
+            c for c in eligible
+            if f"{c.get('symbol', '').upper()}USDT" in mexc_syms
+        ]
+        log.info("[CoinSelector] Step 5: %d → %d on MEXC spot", len(eligible), len(on_mexc))
+
+        if not on_mexc:
+            log.warning("[CoinSelector] Zero MEXC pairs — using fallback.")
             return self._pairs or list(config.FALLBACK_PAIRS)
 
-        # ── Step 2: Haram filter ─────────────────────────────────────
-        halal = [
-            c for c in cg_coins
-            if not _is_haram(c.get("symbol", ""), c.get("name", ""))
+        # ── Step 6: Fetch detail for top 40 candidates ────────────────────────
+        # Sort by 24h volume (descending) before selecting detail targets
+        on_mexc.sort(key=lambda c: float(c.get("24hVolume") or 0), reverse=True)
+        detail_targets = on_mexc[:40]
+        uuids = [c["uuid"] for c in detail_targets if c.get("uuid")]
+
+        log.info("[CoinSelector] Step 6: fetching detail for %d coins…", len(uuids))
+        detail_map: Dict[str, Dict] = client.get_coin_details_batch(uuids)
+
+        # ── Step 7a: Fetch 7-day history for the same 40 candidates ─────────
+        log.info("[CoinSelector] Step 7a: fetching 7d history for %d coins…", len(uuids))
+        history_map: Dict[str, List[Dict]] = {}
+        for i, uuid in enumerate(uuids):
+            if i > 0:
+                time.sleep(0.3)
+            hist = client.get_coin_history(uuid, "7d")
+            if hist:
+                history_map[uuid] = hist
+        log.info("[CoinSelector] Step 7a: history fetched for %d coins", len(history_map))
+
+        # ── Step 7b: Fetch markets for DEX ratio check ────────────────────────
+        log.info("[CoinSelector] Step 7b: fetching markets for DEX ratio check…")
+        dex_ratio_map: Dict[str, float] = {}  # uuid → dex_ratio 0.0–1.0
+        for i, uuid in enumerate(uuids):
+            if i > 0:
+                time.sleep(0.3)
+            markets = client.get_coin_markets(uuid, limit=50)
+            if markets:
+                dex_vol = sum(float(m.get("quoteVolume") or 0)
+                              for m in markets if (m.get("exchangeType") or "").lower() == "dex")
+                total_vol = sum(float(m.get("quoteVolume") or 0) for m in markets)
+                dex_ratio_map[uuid] = dex_vol / total_vol if total_vol > 0 else 0.0
+        log.info("[CoinSelector] Step 7b: markets fetched for %d coins", len(dex_ratio_map))
+
+        # Filter out coins where DEX volume > 30% of total (manipulation risk)
+        _DEX_RATIO_LIMIT = 0.30
+        pre_dex = detail_targets[:]
+        detail_targets = [
+            c for c in detail_targets
+            if dex_ratio_map.get(c.get("uuid", ""), 0.0) <= _DEX_RATIO_LIMIT
         ]
-        removed = len(cg_coins) - len(halal)
+        dex_removed = len(pre_dex) - len(detail_targets)
+        uuids = [c["uuid"] for c in detail_targets if c.get("uuid")]
+        if dex_removed:
+            log.info("[CoinSelector] Step 7b: removed %d coins with DEX ratio > %.0f%%",
+                     dex_removed, _DEX_RATIO_LIMIT * 100)
+
+        # ── Step 8: Fetch top-exchange reference list ─────────────────────────
+        log.info("[CoinSelector] Step 8: fetching top exchanges…")
+        top_exchanges = client.get_top_exchanges(limit=30)
+        reputable_exchange_names: Set[str] = set()
+        if top_exchanges:
+            reputable_exchange_names = {
+                ex.get("name", "").lower() for ex in top_exchanges if ex.get("name")
+            }
+            log.info("[CoinSelector] Step 8: %d reputable exchanges loaded",
+                     len(reputable_exchange_names))
+        else:
+            log.warning("[CoinSelector] Step 8: exchange list unavailable")
+
+        # ── Step 9: Full halal filter (tag-based) ─────────────────────────────
+        tag_passed: List[Dict] = []
+        tag_removed = 0
+        for coin in detail_targets:
+            uuid   = coin.get("uuid", "")
+            detail = detail_map.get(uuid)
+            tags   = detail.get("tags", []) if detail else []
+            if _is_haram_by_tags(tags):
+                log.debug("[CoinSelector] Halal-tag removed: %s (tags=%s)",
+                          coin.get("symbol"), tags)
+                tag_removed += 1
+                continue
+            tag_passed.append(coin)
+
+        log.info("[CoinSelector] Step 9: %d → %d after tag-based halal filter (%d removed)",
+                 len(detail_targets), len(tag_passed), tag_removed)
+
+        # ── Step 10: Score ─────────────────────────────────────────────────────
+        scored: List[ScoredCoin] = []
+        for coin in tag_passed:
+            uuid    = coin.get("uuid", "")
+            detail  = detail_map.get(uuid)
+            history = history_map.get(uuid)
+            bd      = _score_coin(coin, detail, history)
+
+            sc = ScoredCoin(
+                mexc_symbol  = f"{coin.get('symbol', '').upper()}USDT",
+                symbol       = (coin.get("symbol") or "").upper(),
+                name         = coin.get("name") or coin.get("symbol", ""),
+                uuid         = uuid,
+                score        = bd.total,
+                breakdown    = bd,
+                tier         = int(coin.get("tier") or 2),
+                market_cap   = float(coin.get("marketCap")  or 0),
+                volume_24h   = float(coin.get("24hVolume")  or 0),
+                change_24h   = float(coin.get("change")     or 0),
+                price_usd    = float(coin.get("price")      or 0),
+                n_exchanges  = int((detail or {}).get("numberOfExchanges") or 0),
+                tags         = (detail or {}).get("tags") or [],
+                weekly_up    = _weekly_trend_positive(history),
+            )
+            scored.append(sc)
+
+        # ── Step 11: Apply score floor; sort by score then MEXC volume ─────────
+        min_score = getattr(config, "MIN_COIN_SCORE", 7)
+        qualified = [s for s in scored if s.score >= min_score]
+        below = len(scored) - len(qualified)
         log.info(
-            "[CoinSelector] %d → %d coins after haram filter (%d removed)",
-            len(cg_coins), len(halal), removed,
+            "[CoinSelector] Step 11: %d → %d coins with score ≥ %d (%d below threshold)",
+            len(scored), len(qualified), min_score, below,
         )
 
-        # ── Step 3: MEXC available USDT spot pairs ───────────────────
-        try:
-            mexc_symbols: Set[str] = self._api.get_all_usdt_spot_symbols()
-            log.info("[CoinSelector] MEXC has %d active USDT spot pairs", len(mexc_symbols))
-        except Exception as exc:
-            log.error("[CoinSelector] Could not fetch MEXC symbol list: %s", exc)
-            mexc_symbols = set()
-
-        # ── Step 4: Cross-reference (CoinGecko order = volume rank) ─
-        candidates: List[str] = []
-        for coin in halal:
-            pair = coin["symbol"].upper() + "USDT"
-            if pair in mexc_symbols:
-                candidates.append(pair)
-
-        log.info("[CoinSelector] %d pairs available on MEXC after cross-reference", len(candidates))
-
-        # ── Step 5: Re-rank by MEXC 24h USDT volume ─────────────────
+        # Re-rank by MEXC 24h volume for tiebreaking within same score
         try:
             tickers = self._api.get_24h_tickers()
-            vol_map: Dict[str, float] = {
+            mexc_vol: Dict[str, float] = {
                 t["symbol"]: float(t.get("quoteVolume", 0))
-                for t in tickers
+                for t in tickers if isinstance(t, dict)
             }
         except Exception as exc:
-            log.warning("[CoinSelector] 24h ticker fetch failed: %s — using CoinGecko order", exc)
-            vol_map = {}
+            log.warning("[CoinSelector] MEXC 24h volume fetch failed: %s", exc)
+            mexc_vol = {}
 
-        if vol_map:
-            candidates.sort(key=lambda s: vol_map.get(s, 0.0), reverse=True)
+        qualified.sort(
+            key=lambda s: (s.score, mexc_vol.get(s.mexc_symbol, 0.0)),
+            reverse=True,
+        )
 
-        # ── Step 6: Volume floor ─────────────────────────────────────
-        if vol_map:
-            before = len(candidates)
-            candidates = [
-                s for s in candidates
-                if vol_map.get(s, 0.0) >= config.MIN_MEXC_24H_VOLUME_USD
-            ]
-            log.info(
-                "[CoinSelector] Volume floor $%s: %d → %d pairs",
-                f"{config.MIN_MEXC_24H_VOLUME_USD:,.0f}", before, len(candidates),
-            )
+        # ── Step 12: Cap at MAX; supplement if below MIN ───────────────────────
+        max_pairs = getattr(config, "MAX_SELECTED_PAIRS", 20)
+        min_pairs = getattr(config, "MIN_SELECTED_PAIRS", 5)
+        selected = qualified[:max_pairs]
 
-        # ── Step 7: Cap at MAX, supplement if below MIN ──────────────
-        selected = candidates[:config.MAX_SELECTED_PAIRS]
-
-        if len(selected) < config.MIN_SELECTED_PAIRS:
+        if len(selected) < min_pairs:
             log.warning(
-                "[CoinSelector] Only %d pairs qualified — supplementing with fallback list",
+                "[CoinSelector] Only %d pairs passed — supplementing with fallbacks",
                 len(selected),
             )
+            existing = {s.mexc_symbol for s in selected}
             for fb in config.FALLBACK_PAIRS:
-                if fb not in selected:
-                    selected.append(fb)
-                if len(selected) >= config.MIN_SELECTED_PAIRS:
+                if fb not in existing and fb in mexc_syms:
+                    sym = fb.replace("USDT", "")
+                    selected.append(ScoredCoin(
+                        mexc_symbol=fb, symbol=sym, name=fb, uuid="",
+                        score=0, breakdown=ScoreBreakdown(), tier=2,
+                        market_cap=0, volume_24h=0, change_24h=0,
+                        price_usd=0, n_exchanges=0,
+                    ))
+                    existing.add(fb)
+                if len(selected) >= min_pairs:
                     break
 
-        self._pairs = selected
+        # ── Step 13: Commit + save ─────────────────────────────────────────────
+        self._coins  = selected
+        self._pairs  = [s.mexc_symbol for s in selected]
+        self._scores = {s.mexc_symbol: float(s.score) for s in selected}
         self._last_refresh = datetime.now()
+
+        self._save_active_pairs(selected)
+
+        elapsed = time.monotonic() - t0
         next_at = self._last_refresh + timedelta(hours=config.COIN_SELECTOR_REFRESH_HOURS)
 
-        log.info(
-            "[CoinSelector] Active pairs (%d): %s",
-            len(selected), selected,
-        )
-        log.info(
-            "[CoinSelector] Next refresh at %s",
-            next_at.strftime("%Y-%m-%d %H:%M"),
-        )
+        log.info("[CoinSelector] ── Refresh complete (%.1fs) ──────────────────", elapsed)
+        log.info("[CoinSelector] Active pairs (%d):", len(selected))
+        for s in selected:
+            log.info(
+                "  %s  score=%d/10  tier=%d  vol=$%-12s  mcap=$%s  tags=%s",
+                s.mexc_symbol.ljust(12), s.score, s.tier,
+                f"{s.volume_24h:,.0f}", f"{s.market_cap:,.0f}",
+                ",".join(s.tags[:4]) or "—",
+            )
+        log.info("[CoinSelector] Next refresh: %s", next_at.strftime("%Y-%m-%d %H:%M"))
+
         return list(self._pairs)
+
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def get_pairs(self) -> List[str]:
         """
-        Returns the current pair list.
-        Triggers a full refresh if the 4-hour window has elapsed.
-        On refresh failure the existing list (or FALLBACK_PAIRS) is returned.
+        Returns the cached pair list, triggering a refresh when stale.
+        Never returns an empty list — falls back to FALLBACK_PAIRS if needed.
         """
         if self._is_due():
             try:
                 self.refresh()
             except Exception as exc:
-                log.error("[CoinSelector] Refresh raised an unexpected error: %s", exc)
+                log.error("[CoinSelector] Refresh error: %s", exc)
                 if not self._pairs:
-                    log.warning("[CoinSelector] No pairs cached — using fallback list")
+                    log.warning("[CoinSelector] No cache — using FALLBACK_PAIRS")
                     self._pairs = list(config.FALLBACK_PAIRS)
         return list(self._pairs)
+
+    def get_quality_score(self, mexc_symbol: str) -> float:
+        """
+        Returns the 0–10 Coinranking quality score for a pair.
+        Returns 10.0 for unknown symbols so FALLBACK_PAIRS are never blocked.
+        """
+        return self._scores.get(mexc_symbol, 10.0)
+
+    def get_all_scores(self) -> Dict[str, float]:
+        """Full score map for logging or the monitoring dashboard."""
+        return dict(self._scores)
+
+    def get_coin_metadata(self, mexc_symbol: str) -> Optional[ScoredCoin]:
+        """Returns the full ScoredCoin record for dashboard use."""
+        for c in self._coins:
+            if c.mexc_symbol == mexc_symbol:
+                return c
+        return None
