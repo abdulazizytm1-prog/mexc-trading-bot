@@ -102,26 +102,51 @@ Respond ONLY in this exact JSON format:
 """.strip()
 
 _SYSTEM_PROMPT = """
-You are a professional ICT/SMC institutional trader.
-Your job: analyze trade signals and protect capital.
+You are a professional ICT/SMC trader operating at institutional level.
+Analyze signals with hedge fund / prop desk precision.
 
-STRICT RULES:
-- Only approve trades with 8+/10 confidence
-- BTC bearish structure → NO TRADE
-- Fear & Greed > 75 → NO TRADE
-- Signal score < 8 → NO TRADE
-- RR < 1:3 → NO TRADE
-- Fake BOS suspected → NO TRADE
-- When in doubt → NO TRADE
-- Capital protection is ALWAYS priority
+OUTPUT FORMAT (strict):
+⏸ NO TRADE — {SYMBOL}  OR  ✅ TRADE — {SYMBOL}
+Confidence: X.X/10
+Reasoning:
+[2-3 sentences max. Professional, concise. No repetition.
+State the strongest confluence points first, then key blockers.]
 
-Respond ONLY in this JSON format:
+Additional factors:
+- [specific weakness 1]
+- [specific weakness 2]
+- [specific weakness 3]
+
+Conclusion:
+[1 sentence. Clear verdict. Capital preservation or execution justification.]
+
+RULES:
+1. Never repeat the same point twice
+2. Be specific about WHICH confirmation is missing
+   (not "no confirmation" but "no MSS/BOS confirmation candle")
+3. Score 8+ means setup is structurally valid
+   - If trading: "Executing with defined risk"
+   - If NOT trading: state EXACTLY which macro filter blocks it
+4. RR 1:3 = "minimum acceptable threshold"
+   RR 1:4+ = "favorable buffer above minimum"
+5. Session context:
+   - London Open = "high momentum probability"
+   - NY Open = "institutional participation window"
+   - London Close = "reduced continuation probability"
+   - Outside session = "sub-optimal liquidity conditions"
+6. Max 150 words total
+7. No AI-generated filler phrases
+8. Hedge fund tone: cold, precise, data-driven
+
+RESPOND ONLY IN JSON:
 {
   "decision": "BUY" or "NO_TRADE",
-  "confidence": 0-10,
-  "reason": "brief explanation",
+  "confidence": 7.9,
   "risk_level": "LOW/MEDIUM/HIGH",
-  "invalidation": "what would cancel this trade"
+  "reasoning": "...",
+  "factors": ["...", "...", "..."],
+  "conclusion": "...",
+  "invalidation": "..."
 }
 """.strip()
 
@@ -1017,7 +1042,7 @@ Respond ONLY in the required JSON format."""
         ts         = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         decision   = response.get("decision", "UNKNOWN")
         confidence = response.get("confidence", 0)
-        reason     = response.get("reason", "")
+        reason     = response.get("reasoning") or response.get("reason", "")
         risk_lvl   = response.get("risk_level", "")
         _decision_log.info(
             "[%s] %s | TradeType: %s | Decision: %s | Confidence: %s | Risk: %s | Reason: %s",
@@ -1048,9 +1073,11 @@ Respond ONLY in the required JSON format."""
             "tp3":                signal.tp3,
             "rr_ratio":           round((signal.tp3 - signal.entry_price) / risk, 2) if risk > 0 else 0,
             "claude_decision":    response.get("decision"),
-            "claude_confidence":  response.get("confidence"),
-            "claude_reason":      response.get("reason"),
-            "claude_risk_level":  response.get("risk_level"),
+            "claude_confidence":   response.get("confidence"),
+            "claude_reasoning":    response.get("reasoning") or response.get("reason"),
+            "claude_factors":      response.get("factors", []),
+            "claude_conclusion":   response.get("conclusion"),
+            "claude_risk_level":   response.get("risk_level"),
             "claude_invalidation": response.get("invalidation"),
             "fill_price":         fill_price,
             "quantity":           quantity,
@@ -1646,18 +1673,18 @@ Respond ONLY in the required JSON format."""
                             log.info(
                                 "[%s] Claude: %s (confidence=%d) — %s",
                                 symbol, decision, confidence,
-                                response.get("reason", ""),
+                                response.get("reasoning") or response.get("reason", ""),
                             )
                             tg.no_trade(
                                 symbol,
-                                response.get("reason", "Claude rejected signal"),
+                                response.get("reasoning") or response.get("reason", "Claude rejected signal"),
                                 signal.score,
                             )
                             continue
 
                         # ── Execute ───────────────────────────────────────
                         log.info(
-                            "[%s] Claude APPROVED (confidence=%d, risk=%s) — executing.",
+                            "[%s] Claude APPROVED (confidence=%.1f, risk=%s) — executing.",
                             symbol, confidence, response.get("risk_level", ""),
                         )
                         result = self._execute_entry(signal, sl_atr_mult=_eff_sl_mult)
