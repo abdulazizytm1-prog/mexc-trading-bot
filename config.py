@@ -6,7 +6,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 # MEXC credentials — set MEXC_API_KEY and MEXC_SECRET in .env
 API_KEY:    str = os.getenv("MEXC_API_KEY", "")
-API_SECRET: str = os.getenv("MEXC_SECRET",  "")   # was MEXC_API_SECRET — fixed
+API_SECRET: str = (os.getenv("MEXC_SECRET") or os.getenv("MEXC_API_SECRET", ""))  # .env may use either name
 
 # Coinranking Professional API key — override via COINRANKING_API_KEY in .env
 COINRANKING_API_KEY: str = os.getenv(

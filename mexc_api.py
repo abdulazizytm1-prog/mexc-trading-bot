@@ -53,9 +53,8 @@ class MEXCSpotAPI:
         # endpoint is entirely public.  The header is therefore injected
         # per-request only when `auth=True` (private/signed calls).
         #
-        # Content-Type is also intentionally absent: requests sets it
-        # automatically to application/x-www-form-urlencoded when body data
-        # is a dict, and a session-level value would suppress that.
+        # No Content-Type on the session: all params go in the query string
+        # for every method (GET, POST, DELETE) — no body is ever sent.
 
     # ------------------------------------------------------------------ #
     #  Signing                                                             #
@@ -86,6 +85,7 @@ class MEXCSpotAPI:
         *,
         query_params: Optional[Dict] = None,
         body_params: Optional[Dict] = None,
+        body_str: Optional[str] = None,
         auth: bool = False,
     ) -> Any:
         """
@@ -96,15 +96,22 @@ class MEXCSpotAPI:
 
         Param routing:
           GET / DELETE → signed params in URL query string  (query_params)
-          POST         → signed params in form-encoded body (body_params)
+          POST         → signed params in form-encoded body (body_str)
 
-        MEXC verifies the HMAC-SHA256 signature against whatever string it
-        actually received (query string for GET/DELETE, body for POST).
-        Sending POST params in the URL leaves the body empty — the server
-        signs an empty string and the signatures never match → 700004.
+        MEXC v3 uses query-string params for ALL methods (GET, POST, DELETE).
+        Sending params in a form-encoded body returns 700013 ("Invalid content
+        Type") regardless of the Content-Type header.  The body_params and
+        body_str arguments are kept for potential future use but are NOT used
+        by any current MEXC endpoint — everything goes through query_params.
         """
         url = f"{BASE_URL}{endpoint}"
         headers = {"X-MEXC-APIKEY": self.api_key} if auth else {}
+
+        # POST body must be explicitly form-encoded; passing a dict lets
+        # requests choose the encoding, which can trigger MEXC error 700013.
+        if body_str is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+
         last_exc: Optional[Exception] = None
 
         for attempt in range(self.MAX_RETRIES):
@@ -112,8 +119,8 @@ class MEXCSpotAPI:
                 resp = self.session.request(
                     method,
                     url,
-                    params=query_params or None,   # → URL query string
-                    data=body_params or None,       # → form-encoded body
+                    params=query_params or None,           # → URL query string
+                    data=body_str or body_params or None,  # → form-encoded body
                     headers=headers,
                     timeout=5,
                 )
@@ -185,10 +192,12 @@ class MEXCSpotAPI:
         return self._request("GET", endpoint, query_params=params, auth=signed)
 
     def _post(self, endpoint: str, params: Optional[Dict] = None) -> Any:
-        # All POSTs are private.  Signed params travel in the form body so
-        # MEXC verifies the signature against the body string, not an empty one.
+        # MEXC v3 POST endpoints require signed params in the URL query string.
+        # Sending a form-encoded body (data=) returns 700013 ("Invalid content
+        # Type") regardless of the Content-Type header set.  Passing params as
+        # the query string (same as GET/DELETE) is the correct approach.
         params = self._build_signed_params(dict(params or {}))
-        return self._request("POST", endpoint, body_params=params, auth=True)
+        return self._request("POST", endpoint, query_params=params, auth=True)
 
     def _delete(self, endpoint: str, params: Optional[Dict] = None) -> Any:
         # DELETE uses the query string on MEXC (same as Binance v3).
