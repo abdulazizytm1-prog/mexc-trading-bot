@@ -493,19 +493,34 @@ class TelegramCommandHandler:
             balance = self._trader._api.get_usdt_balance()
             self._trader._balance = balance
 
-            # Total equity = free USDT + unrealised value of open positions
-            total_equity = balance
+            pos_value = 0.0   # current market value of open positions
+            pos_cost  = 0.0   # cost basis (entry × remaining qty)
             for sym, pos in self._trader._risk_mgr.all_positions().items():
-                price = self._live_price(sym)
-                if price:
-                    total_equity += price * pos.remaining_qty()
-                else:
-                    total_equity += pos.effective_entry * pos.remaining_qty()
+                price    = self._live_price(sym)
+                qty      = pos.remaining_qty()
+                entry    = pos.effective_entry
+                cur_val  = (price if price else entry) * qty
+                pos_value += cur_val
+                pos_cost  += entry * qty
 
-            return (
-                f"💼 Balance: {_fmt_price(balance)} USDT\n"
-                f"📊 Total equity: {_fmt_price(total_equity)}"
-            )
+            unrealized   = pos_value - pos_cost
+            total_equity = balance + pos_value
+
+            lines = [f"💼 USDT: {_fmt_price(balance)}"]
+            if pos_value > 0:
+                sign     = "+" if unrealized >= 0 else ""
+                cost_ref = pos_cost if pos_cost > 0 else 1.0
+                unr_pct  = unrealized / cost_ref * 100
+                lines.append(f"📊 Open positions value: {_fmt_price(pos_value)}")
+                lines.append(f"💰 Total equity: {_fmt_price(total_equity)}")
+                lines.append(
+                    f"📈 Unrealized PnL: {sign}{_fmt_price(abs(unrealized))} "
+                    f"({sign}{unr_pct:.2f}%)"
+                )
+            else:
+                lines.append(f"💰 Total equity: {_fmt_price(total_equity)}")
+
+            return "\n".join(lines)
         except Exception as exc:
             return f"⚠️ Could not fetch balance: {exc}"
 
@@ -517,24 +532,33 @@ class TelegramCommandHandler:
         lines = [f"📊 Open Positions: {len(positions)}\n"]
         for sym, pos in positions.items():
             entry = pos.effective_entry
+            qty   = pos.remaining_qty()
             price = self._live_price(sym)
+
+            # TP progress badge
+            tp_tag = ""
+            if pos.tp1_hit and pos.tp2_hit:
+                tp_tag = " [TP1✓ TP2✓]"
+            elif pos.tp1_hit:
+                tp_tag = " [TP1✓]"
+
             if price and entry > 0:
-                pnl_pct   = (price - entry) / entry * 100
-                unrealised = (price - entry) * pos.remaining_qty()
-                sign  = "+" if unrealised >= 0 else ""
-                emoji = "✅" if unrealised >= 0 else "🔴"
+                pnl_usdt = (price - entry) * qty
+                pnl_pct  = (price - entry) / entry * 100
+                sign     = "+" if pnl_usdt >= 0 else "-"
+                pct_sign = "+" if pnl_pct  >= 0 else ""
+                emoji    = "✅" if pnl_usdt >= 0 else "🔴"
                 lines.append(
-                    f"{emoji} {sym}\n"
-                    f"   Entry: {_fmt_price(entry)}\n"
-                    f"   Now:   {_fmt_price(price)}\n"
-                    f"   PnL:   {sign}{pnl_pct:.2f}% ({sign}${abs(unrealised):.4f})\n"
-                    f"   SL: {_fmt_price(pos.stop_loss)}"
+                    f"{emoji} {sym}{tp_tag}\n"
+                    f"Entry: {_fmt_price(entry)} | Now: {_fmt_price(price)}\n"
+                    f"PnL: {sign}${abs(pnl_usdt):.4f} ({pct_sign}{pnl_pct:.1f}%)\n"
+                    f"SL: {_fmt_price(pos.stop_loss)} | TP1: {_fmt_price(pos.tp1)}"
                 )
             else:
                 lines.append(
-                    f"📊 {sym}\n"
-                    f"   Entry: {_fmt_price(entry)}\n"
-                    f"   SL: {_fmt_price(pos.stop_loss)}"
+                    f"📊 {sym}{tp_tag}\n"
+                    f"Entry: {_fmt_price(entry)} | Now: N/A\n"
+                    f"SL: {_fmt_price(pos.stop_loss)} | TP1: {_fmt_price(pos.tp1)}"
                 )
         return "\n".join(lines)
 

@@ -34,15 +34,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const PORT          = parseInt(process.env.PORT          ?? "3000", 10);
-const API_KEY       = process.env.MEXC_API_KEY            ?? "";
-const API_SECRET    = process.env.MEXC_SECRET             ?? "";
-const DASH_USER     = process.env.DASH_USER               ?? "admin";
-const DASH_PASS     = process.env.DASH_PASS               ?? "changeme123";
-const BASE_URL      = "https://api.mexc.com";
-const JOURNAL_FILE  = path.join(__dirname, "trade-journal.json");
-const REPORTS_DIR   = path.join(__dirname, "reports");
-const POLL_MS       = 30_000;   // live data refresh interval
+const PORT           = parseInt(process.env.PORT          ?? "3000", 10);
+const API_KEY        = process.env.MEXC_API_KEY            ?? "";
+const API_SECRET     = process.env.MEXC_SECRET             ?? "";
+const DASH_USER      = process.env.DASH_USER               ?? "admin";
+const DASH_PASS      = process.env.DASH_PASS               ?? "changeme123";
+const BASE_URL       = "https://api.mexc.com";
+const JOURNAL_FILE   = path.join(__dirname, "trade-journal.json");
+const POSITIONS_FILE = path.join(__dirname, "positions.json");
+const REPORTS_DIR    = path.join(__dirname, "reports");
+const POLL_MS        = 30_000;   // live data refresh interval
 
 if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
 
@@ -75,6 +76,24 @@ async function publicGet(endpoint, params = {}) {
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(`MEXC ${body.code ?? resp.status}: ${body.msg ?? resp.statusText}`);
   return body;
+}
+
+// ── Positions file (written by risk_manager.py) ────────────────────────────────
+function loadPositions() {
+  if (!fs.existsSync(POSITIONS_FILE)) return {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(POSITIONS_FILE, "utf8"));
+    return raw.positions ?? {};
+  } catch { return {}; }
+}
+
+/** Remaining qty mirror of risk_manager.py Position.remaining_qty() */
+function remainingQty(pos) {
+  const qty  = parseFloat(pos.quantity ?? 0);
+  let   sold = 0;
+  if (pos.tp1_hit) sold += qty * 0.33;
+  if (pos.tp2_hit) sold += qty * 0.33;
+  return Math.max(0, qty - sold);
 }
 
 // ── Trade journal ─────────────────────────────────────────────────────────────
@@ -190,26 +209,17 @@ let live = {
 async function fetchLive() {
   const journal = loadJournal();
   const credOk  = Boolean(API_KEY && API_SECRET);
-  let balanceUsdt = 0, rawBalances = [], positions = [], openOrders = [];
+  let balanceUsdt = 0, rawBalances = [], openOrders = [];
 
   if (credOk) {
     // Account balance
     try {
-      const acct   = await privateGet("/api/v3/account");
-      rawBalances  = (acct.balances ?? []).filter(
+      const acct  = await privateGet("/api/v3/account");
+      rawBalances = (acct.balances ?? []).filter(
         b => parseFloat(b.free) + parseFloat(b.locked) > 0
       );
-      const usdt    = rawBalances.find(b => b.asset === "USDT") ?? { free: "0", locked: "0" };
-      balanceUsdt   = parseFloat(usdt.free) + parseFloat(usdt.locked);
-
-      // Daily equity snapshot (once per day)
-      const today   = new Date().toISOString().slice(0, 10);
-      const snaps   = journal.equity_snapshots;
-      const lastDay = snaps.at(-1)?.timestamp.slice(0, 10);
-      if (lastDay !== today) {
-        snaps.push({ timestamp: new Date().toISOString(), equity: balanceUsdt });
-        saveJournal(journal);
-      }
+      const usdt  = rawBalances.find(b => b.asset === "USDT") ?? { free: "0", locked: "0" };
+      balanceUsdt = parseFloat(usdt.free) + parseFloat(usdt.locked);
     } catch (e) {
       console.error("[Poll] balance:", e.message);
     }
@@ -226,37 +236,77 @@ async function fetchLive() {
     } catch (e) {
       console.error("[Poll] open orders:", e.message);
     }
+  }
 
-    // Non-USDT balances → open positions with live prices
-    for (const bal of rawBalances.filter(b => b.asset !== "USDT")) {
-      try {
-        const sym    = `${bal.asset}USDT`;
-        const ticker = await publicGet("/api/v3/ticker/price", { symbol: sym });
-        const px     = parseFloat(ticker.price ?? 0);
-        const qty    = parseFloat(bal.free) + parseFloat(bal.locked);
-        const entry  = journal.trades.filter(t => t.symbol === sym && t.status === "OPEN").at(-1)?.entry_price ?? px;
-        const cost   = entry * qty;
-        const val    = px * qty;
-        positions.push({
-          asset: bal.asset, symbol: sym,
-          quantity: qty, free: parseFloat(bal.free), locked: parseFloat(bal.locked),
-          entry_price: entry, current_price: px,
-          cost_basis: parseFloat(cost.toFixed(2)), current_value: parseFloat(val.toFixed(2)),
-          pnl_usdt: parseFloat((val - cost).toFixed(2)),
-          pnl_pct:  parseFloat(cost > 0 ? ((val - cost) / cost * 100).toFixed(2) : "0"),
-        });
-      } catch { /* pair may not exist */ }
+  // ── Open positions from positions.json (source of truth) ─────────────────────
+  const rawPositions  = loadPositions();
+  const positions     = [];
+  let unrealizedPnl   = 0;
+
+  for (const [symbol, pos] of Object.entries(rawPositions)) {
+    try {
+      const ticker       = await publicGet("/api/v3/ticker/price", { symbol });
+      const currentPrice = parseFloat(ticker.price ?? 0);
+      const entry        = parseFloat(pos.fill_price) > 0
+        ? parseFloat(pos.fill_price)
+        : parseFloat(pos.entry_price ?? 0);
+      const remaining    = remainingQty(pos);
+      const cost         = entry * remaining;
+      const value        = currentPrice * remaining;
+      const pnlUsdt      = value - cost;
+      const pnlPct       = cost > 0 ? (pnlUsdt / cost) * 100 : 0;
+      unrealizedPnl     += pnlUsdt;
+
+      positions.push({
+        symbol,
+        entry_price:   entry,
+        current_price: currentPrice,
+        quantity:      parseFloat(pos.quantity ?? 0),
+        remaining_qty: parseFloat(remaining.toFixed(8)),
+        stop_loss:     parseFloat(pos.stop_loss  ?? 0),
+        tp1:           parseFloat(pos.tp1        ?? 0),
+        tp2:           parseFloat(pos.tp2        ?? 0),
+        tp3:           parseFloat(pos.tp3        ?? 0),
+        tp1_hit:       Boolean(pos.tp1_hit),
+        tp2_hit:       Boolean(pos.tp2_hit),
+        break_even:    Boolean(pos.break_even_active),
+        trailing:      Boolean(pos.trailing_active),
+        zone_type:     pos.zone_type ?? "",
+        score:         parseInt(pos.score ?? 0, 10),
+        open_time:     pos.open_time ?? null,
+        cost_basis:    parseFloat(cost.toFixed(2)),
+        current_value: parseFloat(value.toFixed(2)),
+        pnl_usdt:      parseFloat(pnlUsdt.toFixed(4)),
+        pnl_pct:       parseFloat(pnlPct.toFixed(2)),
+      });
+    } catch { /* symbol might not be listed or price unavailable */ }
+  }
+
+  // ── Total equity (USDT free + value of open positions) ───────────────────────
+  const totalPositionValue = positions.reduce((s, p) => s + p.current_value, 0);
+  const totalEquity        = balanceUsdt + totalPositionValue;
+
+  // Daily equity snapshot (once per day — use full equity, not just USDT)
+  if (credOk) {
+    const today   = new Date().toISOString().slice(0, 10);
+    const snaps   = journal.equity_snapshots;
+    const lastDay = snaps.at(-1)?.timestamp.slice(0, 10);
+    if (lastDay !== today) {
+      snaps.push({ timestamp: new Date().toISOString(), equity: totalEquity });
+      saveJournal(journal);
     }
   }
 
-  const metrics = calcMetrics(journal, balanceUsdt);
+  const metrics = calcMetrics(journal, totalEquity);
   const charts  = buildChartData(journal);
 
   live = {
     balance: {
       usdt:                  parseFloat(balanceUsdt.toFixed(2)),
-      total_position_value:  parseFloat(positions.reduce((s, p) => s + p.current_value, 0).toFixed(2)),
-      total_equity:          parseFloat((balanceUsdt + positions.reduce((s, p) => s + p.current_value, 0)).toFixed(2)),
+      total_position_value:  parseFloat(totalPositionValue.toFixed(2)),
+      total_equity:          parseFloat(totalEquity.toFixed(2)),
+      unrealized_pnl:        parseFloat(unrealizedPnl.toFixed(2)),
+      realized_pnl:          parseFloat((metrics.total_pnl_usdt ?? 0).toFixed(2)),
       assets:                rawBalances.map(b => ({ asset: b.asset, free: b.free, locked: b.locked })),
     },
     positions,
