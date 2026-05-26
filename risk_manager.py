@@ -91,10 +91,11 @@ class Position:
     score:             int   = 0     # ICT signal score 0–10
     entry_atr:         float = 0.0   # ATR at entry time (used for trailing)
 
-    # ── OCO exchange-side order tracking ──────────────────────────────
-    oco_list_id:  str   = ""    # orderListId returned by MEXC OCO placement
-    oco_tp_price: float = 0.0   # TP price the OCO was placed at
-    oco_sl_price: float = 0.0   # SL price the OCO was placed at
+    # ── Exchange-side bracket order tracking ─────────────────────────
+    tp_order_id:  str   = ""    # orderId of the resting LIMIT SELL (take-profit)
+    sl_order_id:  str   = ""    # orderId of the resting STOP_LOSS_LIMIT SELL (stop-loss)
+    oco_tp_price: float = 0.0   # TP price the bracket was placed at
+    oco_sl_price: float = 0.0   # SL price the bracket was placed at
 
     # ── Computed helpers ──────────────────────────────────────────────
 
@@ -148,7 +149,8 @@ def _pos_to_dict(pos: Position) -> dict:
         "entry_atr":         pos.entry_atr,
         "order_id":          pos.order_id,
         "zone_type":         pos.zone_type,
-        "oco_list_id":       pos.oco_list_id,
+        "tp_order_id":       pos.tp_order_id,
+        "sl_order_id":       pos.sl_order_id,
         "oco_tp_price":      pos.oco_tp_price,
         "oco_sl_price":      pos.oco_sl_price,
     }
@@ -175,7 +177,8 @@ def _pos_from_dict(d: dict) -> Position:
         open_time         = d.get("open_time", ""),
         score             = int(d.get("score", 0)),
         entry_atr         = float(d.get("entry_atr", 0)),
-        oco_list_id       = d.get("oco_list_id", ""),
+        tp_order_id       = d.get("tp_order_id", ""),
+        sl_order_id       = d.get("sl_order_id", ""),
         oco_tp_price      = float(d.get("oco_tp_price", 0)),
         oco_sl_price      = float(d.get("oco_sl_price", 0)),
     )
@@ -599,86 +602,91 @@ class RiskManager:
         tick_size: float = 0.0,
     ) -> bool:
         """
-        Place an OCO (TP limit + SL stop-limit) on the exchange for the open
-        position.  Saves orderListId to the Position and persists to disk.
+        Place a TP limit SELL + SL stop-limit SELL for the open position.
 
-        Returns True on success, False on failure (soft failure — never raises).
-        Retries once after 3 seconds on the first error.
+        MEXC does not support /api/v3/order/oco.  Two independent resting
+        orders are placed instead.  If either leg fails the other is still
+        placed — the bot falls back to software-only protection for the
+        failed leg.  Never raises.
+
+        Returns True when at least one order was placed successfully.
         """
         pos = self._positions.get(symbol)
         if pos is None:
             return False
 
-        qty      = pos.remaining_qty()
-        tp_str   = self._format_price(tp_price, tick_size)
-        sl_str   = self._format_price(sl_price, tick_size)
+        qty       = pos.remaining_qty()
+        tp_str    = self._format_price(tp_price, tick_size)
+        sl_str    = self._format_price(sl_price, tick_size)
+        sl_lim    = self._format_price(sl_price * 0.999, tick_size)
 
-        for attempt in (1, 2):
-            try:
-                result = api.place_oco_order(
-                    symbol          = symbol,
-                    side            = "SELL",
-                    quantity        = qty,
-                    price           = tp_str,
-                    stop_price      = sl_str,
-                    stop_limit_price= sl_str,
-                )
-                list_id = str(result.get("orderListId", ""))
-                if not list_id or list_id == "0":
-                    raise ValueError(f"unexpected response: {result}")
+        tp_id = ""
+        sl_id = ""
 
-                pos.oco_list_id  = list_id
-                pos.oco_tp_price = tp_price
-                pos.oco_sl_price = sl_price
-                self.save_positions()
-                log.info(
-                    "[OCO] Placed for %s: TP=$%s  SL=$%s  (orderListId=%s)",
-                    symbol, tp_str, sl_str, list_id,
-                )
-                return True
-            except Exception as exc:
-                if attempt == 1:
-                    log.warning(
-                        "[OCO] Place failed for %s (attempt 1): %s — retrying in 3s",
-                        symbol, exc,
-                    )
-                    time.sleep(3)
-                else:
-                    log.error(
-                        "[OCO] Place failed for %s (attempt 2): %s — keeping software SL/TP",
-                        symbol, exc,
-                    )
-        return False
+        # ── Leg 1: TP limit sell ──────────────────────────────────────
+        try:
+            res   = api.place_limit_sell(symbol, qty, tp_str)
+            tp_id = str(res.get("orderId", ""))
+            log.info("[Bracket] TP limit placed for %s @ $%s (orderId=%s)", symbol, tp_str, tp_id)
+        except Exception as exc:
+            log.warning("[Bracket] TP limit failed for %s: %s — software TP only", symbol, exc)
+
+        # ── Leg 2: SL stop-limit sell ─────────────────────────────────
+        try:
+            res   = api.place_stop_limit_sell(symbol, qty, sl_str, sl_lim)
+            sl_id = str(res.get("orderId", ""))
+            log.info(
+                "[Bracket] SL stop-limit placed for %s stop=$%s limit=$%s (orderId=%s)",
+                symbol, sl_str, sl_lim, sl_id,
+            )
+        except Exception as exc:
+            log.warning("[Bracket] SL stop-limit failed for %s: %s — software SL only", symbol, exc)
+
+        pos.tp_order_id  = tp_id
+        pos.sl_order_id  = sl_id
+        pos.oco_tp_price = tp_price
+        pos.oco_sl_price = sl_price
+        self.save_positions()
+
+        if not tp_id and not sl_id:
+            log.error("[Bracket] Both legs failed for %s — software SL/TP only", symbol)
+            return False
+        return True
 
     def cancel_oco_for_position(self, symbol: str, api: Any) -> bool:
         """
-        Cancel any live OCO order for the position and clear the stored id.
+        Cancel any live bracket orders (TP limit + SL stop-limit) for the
+        position and clear both stored order IDs.
 
-        Returns True on success or when there is no OCO to cancel.
-        Returns False only when a live OCO exists but the cancel call fails.
+        Returns True when there is nothing to cancel or both cancels succeed.
+        Returns False only when a cancel call fails (IDs are still cleared so
+        we never attempt to cancel a stale order on the next call).
         """
         pos = self._positions.get(symbol)
-        if pos is None or not pos.oco_list_id:
+        if pos is None:
             return True
 
-        list_id = pos.oco_list_id
-        try:
-            api.cancel_oco_order(symbol, list_id)
-            log.info("[OCO] Cancelled for %s (orderListId=%s)", symbol, list_id)
-        except Exception as exc:
-            log.warning(
-                "[OCO] Cancel failed for %s (orderListId=%s): %s",
-                symbol, list_id, exc,
-            )
-            return False
-        finally:
-            # Clear the id regardless so we don't attempt to cancel a stale order again
-            pos.oco_list_id  = ""
-            pos.oco_tp_price = 0.0
-            pos.oco_sl_price = 0.0
-            self.save_positions()
+        all_ok = True
+        for order_id, label in ((pos.tp_order_id, "TP"), (pos.sl_order_id, "SL")):
+            if not order_id:
+                continue
+            try:
+                api.cancel_order(symbol, order_id)
+                log.info("[Bracket] Cancelled %s order for %s (orderId=%s)", label, symbol, order_id)
+            except Exception as exc:
+                log.warning(
+                    "[Bracket] Cancel %s order failed for %s (orderId=%s): %s",
+                    label, symbol, order_id, exc,
+                )
+                all_ok = False
 
-        return True
+        # Always clear IDs — don't retry stale orders next call
+        pos.tp_order_id  = ""
+        pos.sl_order_id  = ""
+        pos.oco_tp_price = 0.0
+        pos.oco_sl_price = 0.0
+        self.save_positions()
+        return all_ok
 
     # ------------------------------------------------------------------ #
     #  Partial TP state transitions                                        #

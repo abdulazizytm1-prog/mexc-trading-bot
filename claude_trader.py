@@ -136,19 +136,25 @@ def _round_step(value: float, step: float, precision: int) -> float:
     return round(value, precision)
 
 
-def _load_journal() -> list:
+def _load_journal() -> dict:
     if _JOURNAL_PATH.exists():
         try:
-            return json.loads(_JOURNAL_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(_JOURNAL_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                # Migrate from old plain-list format
+                return {"trades": raw}
+            if isinstance(raw, dict):
+                raw.setdefault("trades", [])
+                return raw
         except Exception:
             pass
-    return []
+    return {"trades": []}
 
 
-def _save_journal(entries: list) -> None:
+def _save_journal(data: dict) -> None:
     try:
         _JOURNAL_PATH.write_text(
-            json.dumps(entries, indent=2, ensure_ascii=False),
+            json.dumps(data, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
     except OSError as exc:
@@ -1034,7 +1040,7 @@ Respond ONLY in the required JSON format."""
             "order_id":           order_id,
         }
         journal = _load_journal()
-        journal.append(record)
+        journal["trades"].append(record)
         _save_journal(journal)
 
     # ---------------------------------------------------------------- #
