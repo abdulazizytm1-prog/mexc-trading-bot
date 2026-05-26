@@ -709,6 +709,7 @@ def generate_signal(
     symbol: str,
     df: pd.DataFrame,
     htf_df: Optional[pd.DataFrame] = None,
+    trade_type: str = "",
 ) -> Optional[TradeSignal]:
     """
     Full ICT + SMC confluence check.  Returns a TradeSignal when score ≥ 8/10,
@@ -716,10 +717,11 @@ def generate_signal(
 
     Parameters
     ----------
-    symbol : MEXC trading pair, e.g. "BTCUSDT"
-    df     : Primary timeframe (1H) candle DataFrame
-    htf_df : Higher timeframe (4H) DataFrame for structure.
-             Falls back to `df` when None.
+    symbol     : MEXC trading pair, e.g. "BTCUSDT"
+    df         : Primary timeframe (1H) candle DataFrame
+    htf_df     : Higher timeframe (4H) DataFrame for structure.
+                 Falls back to `df` when None.
+    trade_type : "swing" | "daytrading" | "" — controls structure bias tolerance.
 
     Scoring (0 – 10, minimum 8 required)
     -------------------------------------
@@ -735,6 +737,7 @@ def generate_signal(
     +1  VWAP filter (price at or below session VWAP)
     """
     if len(df) < max(ATR_PERIOD + 5, OB_LOOKBACK + 5):
+        log.info("[%s] generate_signal: insufficient candles (%d)", symbol, len(df))
         return None
 
     current_price = float(df.iloc[-1]["close"])
@@ -750,29 +753,40 @@ def generate_signal(
     # ── 1. Kill zone ─────────────────────────────────────────────────────────
     kill_zone = detect_kill_zone()
     if kill_zone is None:
+        log.info("[%s] generate_signal: outside kill zone — skipping", symbol)
         return None                          # weekend / Monday / off-hours hard block
     if kill_zone != "FRIDAY_REDUCED":
         score_bd["kill_zone"] = 1
+    log.info("[%s] generate_signal: kill_zone=%s", symbol, kill_zone)
     # FRIDAY_REDUCED: allowed but no +1 score, and position size halved upstream
 
     # ── 2. Market structure (4H bias) ────────────────────────────────────────
     structure_df = htf_df if (htf_df is not None and len(htf_df) >= 10) else df
     ms = detect_market_structure(structure_df)
+    bias = ms["bias"]
 
     if ms["choch_detected"]:
-        log.debug("[%s] CHoCH detected — skipping", symbol)
-        return None
-    if ms["bias"] != "BULLISH":
-        log.debug("[%s] Structure not BULLISH (%s) — skipping", symbol, ms["bias"])
+        log.info("[%s] generate_signal: CHoCH detected (bias=%s) — skipping", symbol, bias)
         return None
 
+    # Daytrading accepts NEUTRAL structure; only BEARISH is a hard block
+    if trade_type == "daytrading":
+        if bias == "BEARISH":
+            log.info("[%s] generate_signal: structure BEARISH — skipping (daytrading)", symbol)
+            return None
+    else:
+        if bias != "BULLISH":
+            log.info("[%s] generate_signal: structure %s (need BULLISH) — skipping", symbol, bias)
+            return None
+
+    log.info("[%s] generate_signal: structure=%s ✓ (trade_type=%s)", symbol, bias, trade_type or "default")
     score_bd["bos"] = 1
 
     # ── 3. Premium / Discount / OTE ──────────────────────────────────────────
     pd_info = detect_premium_discount(df)
 
     if pd_info["zone"] == "PREMIUM":
-        log.debug("[%s] Price in premium zone (%.1f%%) — skipping", symbol, pd_info["position_pct"])
+        log.info("[%s] generate_signal: PREMIUM zone (%.1f%%) — skipping", symbol, pd_info["position_pct"])
         return None
 
     if pd_info["zone"] == "DISCOUNT":
@@ -800,6 +814,9 @@ def generate_signal(
     fvgs = detect_fvgs(df.iloc[-scan_window:].reset_index(drop=True))
     obs  = detect_order_blocks(df.iloc[-scan_window:].reset_index(drop=True))
 
+    total_bull_fvgs = sum(1 for f in fvgs if f.type == "bullish" and not f.filled)
+    total_bull_obs  = sum(1 for o in obs  if o.type == "bullish" and not o.mitigated)
+
     active_bull_fvgs = [
         f for f in fvgs
         if f.type == "bullish"
@@ -818,6 +835,29 @@ def generate_signal(
     has_fvg = bool(active_bull_fvgs)
     has_ob  = bool(active_bull_obs)
 
+    # Nearest zone distance for diagnostics
+    nearest_fvg_dist = min(
+        (abs(current_price - f.bottom) / current_price for f in fvgs if f.type == "bullish" and not f.filled),
+        default=None,
+    )
+    nearest_ob_dist = min(
+        (abs(current_price - o.bottom) / current_price for o in obs if o.type == "bullish" and not o.mitigated),
+        default=None,
+    )
+    fvg_dist_str = f"{nearest_fvg_dist*100:.2f}%" if nearest_fvg_dist is not None else "none"
+    ob_dist_str  = f"{nearest_ob_dist*100:.2f}%"  if nearest_ob_dist  is not None else "none"
+
+    log.info(
+        "[%s] generate_signal: FVGs total=%d active=%d (nearest=%.2f%% from price) | "
+        "OBs total=%d active=%d (nearest=%s from price) | zone=%s",
+        symbol,
+        total_bull_fvgs, len(active_bull_fvgs),
+        nearest_fvg_dist * 100 if nearest_fvg_dist is not None else 0.0,
+        total_bull_obs, len(active_bull_obs),
+        ob_dist_str,
+        pd_info["zone"],
+    )
+
     if has_fvg:
         score_bd["fvg"] = 1
     if has_ob and has_fvg:
@@ -825,7 +865,11 @@ def generate_signal(
 
     # Must have at least one zone to enter
     if not has_fvg and not has_ob:
-        log.debug("[%s] No active FVG or OB in discount zone — skipping", symbol)
+        log.info(
+            "[%s] generate_signal: no active FVG/OB in discount zone — "
+            "nearest FVG=%s, nearest OB=%s — skipping",
+            symbol, fvg_dist_str, ob_dist_str,
+        )
         return None
 
     # ── 8. VWAP filter ───────────────────────────────────────────────────────
@@ -840,10 +884,14 @@ def generate_signal(
 
     # ── Score gate ───────────────────────────────────────────────────────────
     total_score = sum(score_bd.values())
+    log.info(
+        "[%s] generate_signal: score=%d/10 breakdown=%s",
+        symbol, total_score, score_bd,
+    )
     if total_score < _MIN_SCORE:
-        log.debug(
-            "[%s] Score %d/%d — below minimum %d (bd=%s)",
-            symbol, total_score, 10, _MIN_SCORE, score_bd,
+        log.info(
+            "[%s] generate_signal: score %d < min %d — skipping",
+            symbol, total_score, _MIN_SCORE,
         )
         return None
 

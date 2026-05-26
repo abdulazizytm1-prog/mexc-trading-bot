@@ -202,14 +202,15 @@ class ClaudeTrader:
             return "swing"
         return "daytrading"
 
-    def _evaluate_coin_signal(self, symbol: str) -> Optional[TradeSignal]:
+    def _evaluate_coin_signal(self, symbol: str, trade_type: str = "") -> Optional[TradeSignal]:
         """
         Run all pre-Claude filters for one symbol and return a qualifying
         TradeSignal, or None if any filter rejects it.
 
         Filter order:
           DEX spike → ATR → correlation → position limits → order book →
-          4H bullish structure → strategy signal (score ≥ 8, strength ≥ 0.8) →
+          4H structure (BEARISH always blocked; NEUTRAL allowed for daytrading) →
+          strategy signal (score ≥ 8, strength ≥ 0.65) →
           active FVG or OB zone required → price within 1% of zone.
 
         Emits [Diag] log lines at each checkpoint and updates self._scan_stats
@@ -291,11 +292,20 @@ class ClaudeTrader:
             if htf_df is not None and not htf_df.empty:
                 structure = detect_market_structure(htf_df)
                 htf_bias  = structure.get("bias", "UNKNOWN")
-                if htf_bias != "BULLISH":
-                    log.info("[Diag] %s | 4H Structure: %s ✗", symbol, htf_bias)
-                    st["structure"] = st.get("structure", 0) + 1
-                    return None
-                log.info("[Diag] %s | 4H Structure: BULLISH ✓", symbol)
+                # Daytrading: only BEARISH blocks; NEUTRAL is acceptable
+                # Swing/default: must be BULLISH
+                if trade_type == "daytrading":
+                    if htf_bias == "BEARISH":
+                        log.info("[Diag] %s | 4H Structure: BEARISH ✗", symbol)
+                        st["structure"] = st.get("structure", 0) + 1
+                        return None
+                    log.info("[Diag] %s | 4H Structure: %s ✓ (daytrading)", symbol, htf_bias)
+                else:
+                    if htf_bias != "BULLISH":
+                        log.info("[Diag] %s | 4H Structure: %s ✗", symbol, htf_bias)
+                        st["structure"] = st.get("structure", 0) + 1
+                        return None
+                    log.info("[Diag] %s | 4H Structure: BULLISH ✓", symbol)
             else:
                 log.info("[Diag] %s | 4H Structure: N/A (no HTF data) ~", symbol)
 
@@ -304,7 +314,7 @@ class ClaudeTrader:
             if df.empty:
                 return None
 
-            signal = generate_signal(symbol, df, htf_df=htf_df)
+            signal = generate_signal(symbol, df, htf_df=htf_df, trade_type=trade_type)
 
             if signal is None:
                 log.info("[Diag] %s | Signal: None (no setup found) ✗", symbol)
@@ -327,7 +337,7 @@ class ClaudeTrader:
                 st["low_score"] = st.get("low_score", 0) + 1
                 return None
 
-            if signal.strength < 0.8:
+            if signal.strength < 0.65:
                 log.info(
                     "[Diag] %s | Signal: score=%d/10 strength=%.2f ✗ (weak signal)",
                     symbol, signal.score, signal.strength,
@@ -964,7 +974,7 @@ Respond ONLY in the required JSON format."""
                     if coin_score < config.MIN_COIN_SCORE:
                         continue
                     checked += 1
-                    sig = self._evaluate_coin_signal(symbol)
+                    sig = self._evaluate_coin_signal(symbol, trade_type=trade_type)
                     if sig is not None:
                         qualifying.append(sig)
 
