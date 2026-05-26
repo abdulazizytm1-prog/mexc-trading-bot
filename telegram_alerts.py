@@ -514,11 +514,18 @@ class TelegramCommandHandler:
         kz = _dkz()
         kz_line = f"⏰ Kill Zone: {kz}" if kz else "⏰ Kill Zone: Outside session"
 
+        last_summary = getattr(self._trader, "_last_scan_summary",     "")
+        top_blocker  = getattr(self._trader, "_last_scan_top_blocker", "")
+        scan_line    = f"\n📊 Last scan: {last_summary}"    if last_summary else ""
+        blocker_line = f"\n🔍 Top blocker: {top_blocker}" if top_blocker  else ""
+
         return (
             f"🤖 Bot Status: {status}\n"
             f"{btc_line}\n"
             f"{kz_line}\n"
             f"🔄 Next scan: ~5 min"
+            f"{scan_line}"
+            f"{blocker_line}"
         )
 
     def _cmd_stop(self) -> str:

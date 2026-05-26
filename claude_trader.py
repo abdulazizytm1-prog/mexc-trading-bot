@@ -178,6 +178,11 @@ class ClaudeTrader:
         self._daily_losses: int  = 0
         self._summary_sent_date: Optional[str] = None   # ISO date of last summary
 
+        # Scan diagnostic state — populated each cycle, read by /status
+        self._scan_stats:          Dict[str, int] = {}
+        self._last_scan_summary:   str             = ""
+        self._last_scan_top_blocker: str           = ""
+
         # Telegram command handler — starts after MEXC connection is confirmed
         self._cmd_handler = tg.TelegramCommandHandler(self)
 
@@ -206,13 +211,16 @@ class ClaudeTrader:
           DEX spike → ATR → correlation → position limits → order book →
           4H bullish structure → strategy signal (score ≥ 8, strength ≥ 0.8) →
           active FVG or OB zone required → price within 1% of zone.
+
+        Emits [Diag] log lines at each checkpoint and updates self._scan_stats
+        for the end-of-cycle summary.  No filter thresholds are changed here.
         """
+        st = self._scan_stats   # reference to the cycle's shared counter dict
+
         if self._ws_feed and self._ws_feed.is_dex_spike(symbol):
-            log.debug(
-                "[%s] DEX volume spike (%.0f%%) — skipped.",
-                symbol,
-                self._ws_feed.get_dex_ratio(symbol) * 100 if self._ws_feed else 0,
-            )
+            pct = self._ws_feed.get_dex_ratio(symbol) * 100 if self._ws_feed else 0
+            log.info("[Diag] %s | DEX spike: %.0f%% ✗", symbol, pct)
+            st["dex_spike"] = st.get("dex_spike", 0) + 1
             return None
 
         try:
@@ -225,30 +233,51 @@ class ClaudeTrader:
             ws_price      = self._ws_feed.get_price(symbol) if self._ws_feed else None
             current_price = ws_price or float(klines[-1][4])
 
-            # ATR filter
+            # ── ATR filter ────────────────────────────────────────────────
             atr_check = check_atr_filter(klines, current_price)
             if not atr_check["tradeable"]:
-                log.debug("[%s] ATR: %s", symbol, atr_check["reason"])
+                log.info(
+                    "[Diag] %s | ATR: %.2f%% ✗ (%s)",
+                    symbol, atr_check.get("atr_pct", 0.0), atr_check["reason"],
+                )
+                st["atr"] = st.get("atr", 0) + 1
                 return None
+            log.info("[Diag] %s | ATR: %.2f%% ✓", symbol, atr_check.get("atr_pct", 0.0))
 
-            # Correlation guard
+            # ── Correlation guard ──────────────────────────────────────────
             corr_check = check_correlation_guard(symbol, self._risk_mgr.all_positions())
             if not corr_check["allowed"]:
-                log.debug("[%s] Correlation: %s", symbol, corr_check["reason"])
+                log.info(
+                    "[Diag] %s | Correlation: blocked (%s) ✗",
+                    symbol, corr_check["reason"],
+                )
+                st["correlation"] = st.get("correlation", 0) + 1
                 return None
+            log.info("[Diag] %s | Correlation: allowed ✓", symbol)
 
-            # Per-symbol position limit
+            # ── Per-symbol position limit ──────────────────────────────────
             if not self._risk_mgr.can_open_position(symbol):
+                log.info("[Diag] %s | Position limit: already open ✗", symbol)
+                st["position_limit"] = st.get("position_limit", 0) + 1
                 return None
 
-            # Order book liquidity
+            # ── Order book liquidity ───────────────────────────────────────
             ob_check = check_order_book(symbol, current_price, self._api)
             if not ob_check["liquid_enough"]:
-                log.debug("[%s] Order book: %s", symbol, ob_check["reason"])
+                log.info(
+                    "[Diag] %s | OrderBook: spread=%.3f%% ✗ (%s)",
+                    symbol, ob_check.get("spread_pct", 0.0), ob_check["reason"],
+                )
+                st["order_book"] = st.get("order_book", 0) + 1
                 return None
+            log.info(
+                "[Diag] %s | OrderBook: spread=%.3f%% ✓",
+                symbol, ob_check.get("spread_pct", 0.0),
+            )
 
-            # 4H market structure — must be BULLISH
-            htf_df = None
+            # ── 4H market structure — must be BULLISH ─────────────────────
+            htf_df   = None
+            htf_bias = "N/A"
             try:
                 htf_klines = self._api.get_klines(
                     symbol,
@@ -261,37 +290,76 @@ class ClaudeTrader:
 
             if htf_df is not None and not htf_df.empty:
                 structure = detect_market_structure(htf_df)
-                if structure.get("bias") != "BULLISH":
-                    log.debug(
-                        "[%s] HTF bias=%s — skipped.",
-                        symbol, structure.get("bias", "UNKNOWN"),
-                    )
+                htf_bias  = structure.get("bias", "UNKNOWN")
+                if htf_bias != "BULLISH":
+                    log.info("[Diag] %s | 4H Structure: %s ✗", symbol, htf_bias)
+                    st["structure"] = st.get("structure", 0) + 1
                     return None
+                log.info("[Diag] %s | 4H Structure: BULLISH ✓", symbol)
+            else:
+                log.info("[Diag] %s | 4H Structure: N/A (no HTF data) ~", symbol)
 
-            # Strategy signal
+            # ── Strategy signal ────────────────────────────────────────────
             df = candles_to_df(klines)
             if df.empty:
                 return None
 
             signal = generate_signal(symbol, df, htf_df=htf_df)
-            if signal is None or signal.score < 8 or signal.strength < 0.8:
+
+            if signal is None:
+                log.info("[Diag] %s | Signal: None (no setup found) ✗", symbol)
+                st["no_signal"] = st.get("no_signal", 0) + 1
                 return None
 
-            # Active FVG or OB zone required
+            if signal.score < 8:
+                log.info(
+                    "[Diag] %s | Signal: score=%d/10 ✗ (below 8)",
+                    symbol, signal.score,
+                )
+                if not signal.liquidity_sweep:
+                    log.info("[Diag] %s | Signal: No liquidity sweep ✗", symbol)
+                if not signal.displacement:
+                    log.info("[Diag] %s | Signal: No displacement candle ✗", symbol)
+                if not getattr(signal, "discount_zone", False):
+                    log.info("[Diag] %s | Signal: Not in discount zone ✗", symbol)
+                if not (signal.fvg_present or signal.ob_present):
+                    log.info("[Diag] %s | Signal: NO FVG/OB near price ✗", symbol)
+                st["low_score"] = st.get("low_score", 0) + 1
+                return None
+
+            if signal.strength < 0.8:
+                log.info(
+                    "[Diag] %s | Signal: score=%d/10 strength=%.2f ✗ (weak signal)",
+                    symbol, signal.score, signal.strength,
+                )
+                st["low_strength"] = st.get("low_strength", 0) + 1
+                return None
+
+            # ── Active FVG or OB zone required ────────────────────────────
             if not (signal.fvg_present or signal.ob_present):
-                log.debug("[%s] No active FVG/OB zone — skipped.", symbol)
+                log.info(
+                    "[Diag] %s | Signal: score=%d/10 NO FVG/OB near price ✗",
+                    symbol, signal.score,
+                )
+                st["no_zone"] = st.get("no_zone", 0) + 1
                 return None
 
-            # Price must be within 1% of the entry zone
+            # ── Price within 1% of entry zone ─────────────────────────────
             if current_price > 0:
                 proximity_pct = abs(current_price - signal.entry_price) / signal.entry_price
                 if proximity_pct > 0.01:
-                    log.debug(
-                        "[%s] Price %.6f is %.2f%% from zone %.6f (>1%%) — skipped.",
-                        symbol, current_price, proximity_pct * 100, signal.entry_price,
+                    log.info(
+                        "[Diag] %s | Signal: score=%d/10 price %.2f%% from zone ✗ (>1%%)",
+                        symbol, signal.score, proximity_pct * 100,
                     )
+                    st["price_far"] = st.get("price_far", 0) + 1
                     return None
 
+            log.info(
+                "[Diag] %s | Signal: score=%d/10 zone=%s strength=%.2f ✓ → qualified",
+                symbol, signal.score, signal.zone_type, signal.strength,
+            )
+            st["approved"] = st.get("approved", 0) + 1
             return signal
 
         except MEXCAPIError as exc:
@@ -811,15 +879,18 @@ Respond ONLY in the required JSON format."""
 
                 kill_zone = detect_kill_zone()
                 if kill_zone is None:
+                    log.info("[Diag] Kill zone: NONE ✗ (outside session)")
                     log.debug("[ClaudeTrader] No active ICT kill zone — sleeping.")
                     time.sleep(_LOOP_INTERVAL)
                     continue
+                log.info("[Diag] Kill zone: %s ✓", kill_zone)
 
                 # ── Gate 2: Global market filter ─────────────────────────
                 trade_type = self._determine_trade_type()
                 ctx = self._market_ctx.get_context()
                 market_ok = check_global_market(ctx, trade_type)
                 if not market_ok["tradeable"]:
+                    log.info("[Diag] Market: %s ✗", market_ok["reason"])
                     log.info(
                         "[ClaudeTrader][MarketFilter][%s] %s",
                         trade_type, market_ok["reason"],
@@ -828,6 +899,13 @@ Respond ONLY in the required JSON format."""
                     tg.market_filter(market_ok["reason"], btc_dom)
                     time.sleep(_LOOP_INTERVAL)
                     continue
+
+                _diag_dom = getattr(ctx, "btc_dominance", 0.0) if ctx else 0.0
+                _diag_fg  = getattr(ctx, "fear_greed",    "N/A") if ctx else "N/A"
+                log.info(
+                    "[Diag] Market: BTC dom=%.1f%% %s | F&G=%s ✓",
+                    _diag_dom, trade_type, _diag_fg,
+                )
 
                 altcoin_restricted = self._market_ctx.is_altcoin_restricted()
 
@@ -873,6 +951,11 @@ Respond ONLY in the required JSON format."""
                 )
 
                 # ── Phase 1: Collect qualifying signals from full universe ─
+                self._scan_stats = {k: 0 for k in (
+                    "dex_spike", "atr", "correlation", "position_limit",
+                    "order_book", "structure", "no_signal", "low_score",
+                    "low_strength", "no_zone", "price_far", "approved",
+                )}
                 qualifying: List[TradeSignal] = []
                 checked = 0
 
@@ -888,6 +971,40 @@ Respond ONLY in the required JSON format."""
                 # ── Phase 2: Rank by score; send top N to Claude ──────────
                 qualifying.sort(key=lambda s: s.score, reverse=True)
                 candidates = qualifying[:_MAX_CLAUDE_CANDIDATES]
+
+                # ── Scan summary + top-blocker ────────────────────────────
+                _s = self._scan_stats
+                _no_sig_total = (
+                    _s.get("no_signal", 0) +
+                    _s.get("low_score", 0) +
+                    _s.get("low_strength", 0)
+                )
+                _scan_summary = (
+                    f"{checked} checked | "
+                    f"{_s.get('atr', 0)} ATR fail | "
+                    f"{_s.get('structure', 0)} structure fail | "
+                    f"{_no_sig_total} no/low signal | "
+                    f"{_s.get('approved', 0)} approved → Claude: {len(candidates)}"
+                )
+                log.info("[Scan Summary] %s", _scan_summary)
+
+                _blockers = {
+                    "ATR":          _s.get("atr", 0),
+                    "Correlation":  _s.get("correlation", 0),
+                    "OrderBook":    _s.get("order_book", 0),
+                    "4H Structure": _s.get("structure", 0),
+                    "No Signal":    _s.get("no_signal", 0),
+                    "Low Score":    _s.get("low_score", 0),
+                    "Low Strength": _s.get("low_strength", 0),
+                    "No Zone":      _s.get("no_zone", 0),
+                    "Price Far":    _s.get("price_far", 0),
+                }
+                _top_name = max(_blockers, key=lambda k: _blockers[k])
+                _top_n    = _blockers[_top_name]
+                self._last_scan_summary     = _scan_summary
+                self._last_scan_top_blocker = (
+                    f"{_top_name} ({_top_n} coins)" if _top_n > 0 else "none"
+                )
 
                 log.info(
                     "[Scan] %d coins checked → %d active signals → top %d sent to Claude",
