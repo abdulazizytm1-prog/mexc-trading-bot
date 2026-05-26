@@ -258,8 +258,12 @@ def market_filter(reason: str, btc_dom: Optional[float] = None) -> bool:
 
 class TelegramCommandHandler:
     """
-    Background daemon thread that polls Telegram getUpdates every 10 s and
+    Background daemon thread that long-polls Telegram getUpdates and
     dispatches bot commands from the authorised chat.
+
+    Long-polling (timeout=8 s on the Telegram side) means the server holds
+    the connection open until a message arrives, so responses are near-instant
+    instead of waiting up to _ERROR_BACKOFF seconds.
 
     Security
     --------
@@ -271,7 +275,9 @@ class TelegramCommandHandler:
     /stop sets it False; /start sets it True.
     """
 
-    _POLL_INTERVAL = 10   # seconds between getUpdates polls
+    _LONG_POLL_TIMEOUT = 8    # Telegram server-side wait (seconds)
+    _HTTP_TIMEOUT      = 14   # requests timeout — must exceed _LONG_POLL_TIMEOUT
+    _ERROR_BACKOFF     = 10   # seconds to sleep after a network/API error
 
     def __init__(self, trader: "ClaudeTrader") -> None:
         self.trading_enabled: bool = True
@@ -286,6 +292,7 @@ class TelegramCommandHandler:
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
+            log.info("[TelegramCmd] Listener already running — skipping start.")
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
@@ -294,12 +301,17 @@ class TelegramCommandHandler:
             daemon=True,
         )
         self._thread.start()
-        log.info("[TelegramCmd] Command listener started (polling every %ds).", self._POLL_INTERVAL)
+        log.info(
+            "[TelegramCmd] Command listener started in thread '%s' "
+            "(long-poll timeout=%ds).",
+            self._thread.name, self._LONG_POLL_TIMEOUT,
+        )
+        _send("🤖 Bot started and ready!")
 
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread:
-            self._thread.join(timeout=15)
+            self._thread.join(timeout=self._HTTP_TIMEOUT + 2)
         log.info("[TelegramCmd] Command listener stopped.")
 
     # ---------------------------------------------------------------- #
@@ -307,27 +319,52 @@ class TelegramCommandHandler:
     # ---------------------------------------------------------------- #
 
     def _poll_loop(self) -> None:
+        """
+        Loop forever, long-polling Telegram for updates.
+
+        With long polling the server holds the connection open for up to
+        _LONG_POLL_TIMEOUT seconds, so an update returns immediately when it
+        arrives — no fixed inter-poll sleep needed.  We only sleep on errors
+        to avoid hammering the API.
+        """
+        log.info("[TelegramCmd] Poll loop running.")
         while not self._stop_event.is_set():
             try:
                 self._fetch_and_dispatch()
             except Exception as exc:
-                log.debug("[TelegramCmd] Poll error: %s", exc)
-            self._stop_event.wait(self._POLL_INTERVAL)
+                log.warning("[TelegramCmd] Unhandled poll error: %s", exc)
+                self._stop_event.wait(self._ERROR_BACKOFF)
+        log.info("[TelegramCmd] Poll loop exited.")
 
     def _fetch_and_dispatch(self) -> None:
         if not _TOKEN or not _CHAT_ID:
+            # Credentials not configured — back off so we don't spin
+            self._stop_event.wait(self._ERROR_BACKOFF)
             return
         try:
             resp = requests.get(
                 f"https://api.telegram.org/bot{_TOKEN}/getUpdates",
-                params={"offset": self._offset, "limit": 20, "timeout": 0},
-                timeout=15,
+                params={
+                    "offset":  self._offset,
+                    "limit":   20,
+                    "timeout": self._LONG_POLL_TIMEOUT,
+                },
+                timeout=self._HTTP_TIMEOUT,
             )
+        except requests.Timeout:
+            # Long-poll expired with no updates — normal, just retry immediately
+            return
         except Exception as exc:
-            log.debug("[TelegramCmd] getUpdates network error: %s", exc)
+            log.warning("[TelegramCmd] getUpdates network error: %s", exc)
+            self._stop_event.wait(self._ERROR_BACKOFF)
             return
 
         if not resp.ok:
+            log.warning(
+                "[TelegramCmd] getUpdates HTTP %d: %s",
+                resp.status_code, resp.text[:200],
+            )
+            self._stop_event.wait(self._ERROR_BACKOFF)
             return
 
         for update in resp.json().get("result", []):
@@ -341,11 +378,16 @@ class TelegramCommandHandler:
             # Security: only respond to the configured chat
             chat_id = str(msg.get("chat", {}).get("id", ""))
             if chat_id != str(_CHAT_ID):
-                log.debug("[TelegramCmd] Ignored message from unknown chat %s.", chat_id)
+                log.warning(
+                    "[TelegramCmd] Ignored message from unknown chat %s "
+                    "(expected %s).", chat_id, _CHAT_ID,
+                )
                 continue
 
             text = (msg.get("text") or "").strip()
             if text.startswith("/"):
+                cmd_word = text.split()[0]
+                log.info("[TelegramCmd] ← %s from chat %s", cmd_word, chat_id)
                 self._dispatch(text)
 
     def _dispatch(self, text: str) -> None:
@@ -364,7 +406,12 @@ class TelegramCommandHandler:
         fn = handlers.get(cmd)
         if fn:
             try:
-                _send(fn())
+                reply = fn()
+                ok = _send(reply)
+                log.info(
+                    "[TelegramCmd] → %s reply sent (ok=%s, %d chars)",
+                    cmd, ok, len(reply),
+                )
             except Exception as exc:
                 log.error("[TelegramCmd] Error in %s handler: %s", cmd, exc)
                 _send(f"⚠️ Error running {cmd}: {exc}")
