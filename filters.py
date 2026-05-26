@@ -248,15 +248,22 @@ def check_order_book(symbol: str, entry_price: float, mexc_api: Any) -> Dict[str
 
 # ── 5. Global market context gate ─────────────────────────────────────────
 
-def check_global_market(market_context: Any) -> Dict[str, Any]:
+def check_global_market(market_context: Any, trade_type: str = "") -> Dict[str, Any]:
     """
     Hard macro gates based on the MarketContext dataclass from market_context.py.
 
     Blocks ALL new entries if:
       • market_change_pct < -3.0 %  — global crash
-      • btc_dominance > 58.0 %      — altcoin contagion risk
+      • btc_dominance > threshold   — altcoin contagion risk
+          swing      : threshold = 60 %
+          daytrading : threshold = 65 %
+          (default)  : threshold = 58 %
       • fear_greed > 75             — extreme greed (if field present)
       • btc_bias == "BEARISH"       — BTC structure bearish (if field present)
+
+    Args:
+        market_context : MarketContext or None
+        trade_type     : "swing" | "daytrading" | "" (default conservative)
 
     Returns:
         tradeable : bool
@@ -273,10 +280,20 @@ def check_global_market(market_context: Any) -> Dict[str, Any]:
         }
 
     btc_dom = getattr(market_context, "btc_dominance", 0.0)
-    if btc_dom > 58.0:
+    if trade_type == "swing":
+        btc_dom_limit = 60.0
+    elif trade_type == "daytrading":
+        btc_dom_limit = 65.0
+    else:
+        btc_dom_limit = 58.0
+
+    if btc_dom > btc_dom_limit:
         return {
             "tradeable": False,
-            "reason": f"BTC dominance {btc_dom:.1f}% > 58% — altcoin risk too high",
+            "reason": (
+                f"BTC dominance {btc_dom:.1f}% > {btc_dom_limit:.0f}%"
+                f" ({trade_type or 'default'}) — altcoin risk too high"
+            ),
         }
 
     fear_greed = getattr(market_context, "fear_greed", None)

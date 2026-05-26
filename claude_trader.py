@@ -188,6 +188,13 @@ class ClaudeTrader:
         hour = datetime.now(timezone.utc).hour
         return (7 <= hour < 10) or (13 <= hour < 16)
 
+    def _determine_trade_type(self) -> str:
+        """Return 'swing' for 4H/Daily timeframes, 'daytrading' for 1H/15M."""
+        tf = getattr(config, "PRIMARY_TIMEFRAME", "60m").lower()
+        if tf in ("4h", "1d"):
+            return "swing"
+        return "daytrading"
+
     def _ensure_sym_info(self, symbol: str) -> dict:
         if symbol not in self._sym_info_cache:
             try:
@@ -332,16 +339,16 @@ Respond ONLY in the required JSON format."""
     #  Logging                                                          #
     # ---------------------------------------------------------------- #
 
-    def _log_decision(self, symbol: str, response: Dict[str, Any]) -> None:
+    def _log_decision(self, symbol: str, response: Dict[str, Any], trade_type: str = "") -> None:
         """Append one line to claude_decisions.log."""
-        ts        = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        decision  = response.get("decision", "UNKNOWN")
+        ts         = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        decision   = response.get("decision", "UNKNOWN")
         confidence = response.get("confidence", 0)
-        reason    = response.get("reason", "")
-        risk_lvl  = response.get("risk_level", "")
+        reason     = response.get("reason", "")
+        risk_lvl   = response.get("risk_level", "")
         _decision_log.info(
-            "[%s] %s | Decision: %s | Confidence: %s | Risk: %s | Reason: %s",
-            ts, symbol, decision, confidence, risk_lvl, reason,
+            "[%s] %s | TradeType: %s | Decision: %s | Confidence: %s | Risk: %s | Reason: %s",
+            ts, symbol, trade_type or "unknown", decision, confidence, risk_lvl, reason,
         )
 
     def _log_trade(
@@ -683,10 +690,14 @@ Respond ONLY in the required JSON format."""
                     continue
 
                 # ── Gate 2: Global market filter ─────────────────────────
+                trade_type = self._determine_trade_type()
                 ctx = self._market_ctx.get_context()
-                market_ok = check_global_market(ctx)
+                market_ok = check_global_market(ctx, trade_type)
                 if not market_ok["tradeable"]:
-                    log.info("[ClaudeTrader][MarketFilter] %s", market_ok["reason"])
+                    log.info(
+                        "[ClaudeTrader][MarketFilter][%s] %s",
+                        trade_type, market_ok["reason"],
+                    )
                     btc_dom = getattr(ctx, "btc_dominance", None) if ctx else None
                     tg.market_filter(market_ok["reason"], btc_dom)
                     time.sleep(_LOOP_INTERVAL)
@@ -801,9 +812,9 @@ Respond ONLY in the required JSON format."""
 
                         log.info(
                             "[%s] Signal qualified: score=%d/10 zone=%s kill=%s "
-                            "entry=%.6f SL=%.6f TP3=%.6f | sending to Claude…",
+                            "trade_type=%s entry=%.6f SL=%.6f TP3=%.6f | sending to Claude…",
                             symbol, signal.score, signal.zone_type,
-                            signal.kill_zone, signal.entry_price,
+                            signal.kill_zone, trade_type, signal.entry_price,
                             signal.stop_loss, signal.tp3,
                         )
 
@@ -822,7 +833,7 @@ Respond ONLY in the required JSON format."""
                             )
                             continue
 
-                        self._log_decision(symbol, response)
+                        self._log_decision(symbol, response, trade_type)
 
                         decision   = response.get("decision", "NO_TRADE")
                         confidence = int(response.get("confidence", 0))
