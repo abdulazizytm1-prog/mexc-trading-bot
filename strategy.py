@@ -516,11 +516,12 @@ def detect_premium_discount(df: pd.DataFrame) -> dict:
 
 def detect_liquidity_sweep(df: pd.DataFrame) -> dict:
     """
-    Detect a buy-side liquidity sweep below a recent swing low.
+    Detect a buy-side liquidity sweep below a recent swing low or equal-low pool.
 
-    Sweep is confirmed when, in the last 20 candles:
-      1. A candle's wick (low) dips at least 0.3 % below a swing low.
-      2. That candle's body (close) closes back above the swing low.
+    Sweep is confirmed when, in the last 30 candles:
+      1. A candle's wick (low) dips at least 0.15 % below a swing low
+         OR touches an equal-low liquidity pool (two lows within 0.1 % of each other).
+      2. That candle's body (close) closes back above the swept level.
 
     The most recent qualifying sweep is returned.
 
@@ -528,15 +529,15 @@ def detect_liquidity_sweep(df: pd.DataFrame) -> dict:
     -------
     {
       "sweep_detected":     bool,
-      "sweep_price":        float,  # the swing low that was swept
-      "sweep_candle_index": int,    # index in the 20-candle slice (-1 if none)
-      "sweep_strength":     float,  # how far below swing low the wick went (%)
+      "sweep_price":        float,  # the swept level (swing low or equal-low pool)
+      "sweep_candle_index": int,    # index in the window slice (-1 if none)
+      "sweep_strength":     float,  # how far below the level the wick went (%)
     }
     """
     _no = {"sweep_detected": False, "sweep_price": 0.0,
            "sweep_candle_index": -1, "sweep_strength": 0.0}
 
-    recent = df.iloc[-20:].reset_index(drop=True) if len(df) >= 20 else df.reset_index(drop=True)
+    recent = df.iloc[-30:].reset_index(drop=True) if len(df) >= 30 else df.reset_index(drop=True)
     n = len(recent)
     if n < 6:
         return _no
@@ -545,24 +546,42 @@ def detect_liquidity_sweep(df: pd.DataFrame) -> dict:
     if not swing_lows:
         return _no
 
-    # Search each candle for a sweep of any of the last 3 swing lows
-    candidate_lows = swing_lows[-3:]
+    # Build candidate levels: pivot lows + equal-low pools
+    # Equal lows: two pivot lows whose prices are within 0.1 % of each other
+    candidate_levels: List[Tuple[int, float]] = list(swing_lows[-5:])
+    for a_idx, a_lo in swing_lows:
+        for b_idx, b_lo in swing_lows:
+            if a_idx >= b_idx:
+                continue
+            if abs(a_lo - b_lo) / b_lo <= 0.001:   # within 0.1 % — equal-low pool
+                pool_price = (a_lo + b_lo) / 2.0
+                pool_idx   = max(a_idx, b_idx)
+                candidate_levels.append((pool_idx, pool_price))
 
-    # Iterate candles from newest to oldest so we return the most recent sweep
+    # Deduplicate; sort by index ascending so newest wins in the scan below
+    seen: set = set()
+    deduped: List[Tuple[int, float]] = []
+    for item in sorted(candidate_levels, key=lambda x: x[0]):
+        key = round(item[1], 2)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+
+    # Iterate candles newest → oldest; return the most recent sweep
     for i in range(n - 1, -1, -1):
         candle = recent.iloc[i]
         lo    = float(candle["low"])
         close = float(candle["close"])
 
-        for _idx, swing_lo in candidate_lows:
-            if i <= _idx:
-                continue   # only look at candles AFTER the swing low formed
-            min_wick = swing_lo * (1.0 - 0.003)   # 0.3 % below swing low
-            if lo <= min_wick and close > swing_lo:
-                strength_pct = (swing_lo - lo) / swing_lo * 100.0
+        for level_idx, level_price in deduped:
+            if i <= level_idx:
+                continue   # only look at candles AFTER the level formed
+            min_wick = level_price * (1.0 - 0.0015)   # 0.15 % below level
+            if lo <= min_wick and close > level_price:
+                strength_pct = (level_price - lo) / level_price * 100.0
                 return {
                     "sweep_detected":     True,
-                    "sweep_price":        swing_lo,
+                    "sweep_price":        level_price,
                     "sweep_candle_index": i,
                     "sweep_strength":     round(strength_pct, 3),
                 }
@@ -635,9 +654,11 @@ def calculate_vwap(df: pd.DataFrame) -> float:
 
 def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     """
-    True when candle at `idx` is a strong bullish displacement candle:
+    True when candle at `idx` qualifies as a bullish displacement candle.
+
+    Single-candle criteria:
       - Bullish (close > open)
-      - Body ≥ 0.3 % of close price
+      - Body ≥ 0.2 % of close price
       - Upper wick ≤ 20 % of candle range (closes near high)
       - Volume ≥ 1.2 × 20-candle average volume
     """
@@ -653,18 +674,17 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     if close <= open_:
         return False   # must be bullish
 
-    body        = close - open_
+    body         = close - open_
     candle_range = high - low
     if candle_range <= 0:
         return False
 
-    body_pct    = body / close
-    upper_wick  = high - close
-    wick_ratio  = upper_wick / candle_range
+    body_pct   = body / close
+    wick_ratio = (high - close) / candle_range
 
-    if body_pct < 0.003:      # body < 0.3 %
+    if body_pct < 0.002:      # body < 0.2 %
         return False
-    if wick_ratio > 0.20:     # wick > 20 % of range
+    if wick_ratio > 0.20:     # upper wick > 20 % of range
         return False
 
     # Volume check
@@ -672,6 +692,47 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     avg_vol    = float(df.iloc[start:idx]["volume"].mean()) if idx > start else 0.0
     candle_vol = float(c["volume"])
     if avg_vol > 0 and candle_vol < 1.2 * avg_vol:
+        return False
+
+    return True
+
+
+def _is_two_candle_displacement(df: pd.DataFrame, idx: int) -> bool:
+    """
+    True when candles at `idx-1` and `idx` together form a displacement move.
+
+    Two-candle criteria (both candles must be bullish):
+      - Combined body (close[idx] - open[idx-1]) ≥ 0.3 % of close[idx]
+      - Neither candle retraces more than 50 % of the other's body
+      - Combined volume ≥ 1.2 × 20-candle average volume
+    """
+    if idx < 1 or idx >= len(df):
+        return False
+
+    c1 = df.iloc[idx - 1]
+    c2 = df.iloc[idx]
+
+    o1, c_1 = float(c1["open"]), float(c1["close"])
+    o2, c_2 = float(c2["open"]), float(c2["close"])
+
+    # Both must be bullish
+    if c_1 <= o1 or c_2 <= o2:
+        return False
+
+    # c2 open must not retrace below c1's 50 % body midpoint (continuous move)
+    mid1 = o1 + (c_1 - o1) * 0.5
+    if o2 < mid1:
+        return False
+
+    combined_body = c_2 - o1
+    if combined_body / c_2 < 0.003:   # combined body < 0.3 %
+        return False
+
+    # Volume: average of the two candles vs prior 20-bar average
+    start    = max(0, idx - 1 - 20)
+    avg_vol  = float(df.iloc[start:idx - 1]["volume"].mean()) if idx - 1 > start else 0.0
+    avg_two  = (float(c1["volume"]) + float(c2["volume"])) / 2.0
+    if avg_vol > 0 and avg_two < 1.2 * avg_vol:
         return False
 
     return True
@@ -809,9 +870,10 @@ def generate_signal(
         score_bd["sweep"] = 1
 
     # ── 5. Displacement candle ───────────────────────────────────────────────
-    # Look for a displacement in the most recent 10 candles
+    # Single candle (body ≥ 0.2 %) or two consecutive bullish candles
+    # with combined body ≥ 0.3 %, checked across the most recent 10 candles.
     for di in range(max(0, n - 10), n):
-        if _is_displacement_candle(df, di):
+        if _is_displacement_candle(df, di) or _is_two_candle_displacement(df, di):
             score_bd["displacement"] = 1
             break
 
