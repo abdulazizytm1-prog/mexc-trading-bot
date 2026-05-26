@@ -23,7 +23,7 @@ QUOTE_CURRENCY = "USDT"
 COIN_SELECTOR_REFRESH_HOURS = 4    # Rebuild pair universe every N hours
 COINRANKING_PAGES = 2              # 2 × 100 = 200 coins per refresh
 MIN_SELECTED_PAIRS = 5             # Supplement with fallbacks if fewer qualify
-MAX_SELECTED_PAIRS = 20            # Hard cap on active trading pairs
+MAX_SELECTED_PAIRS = 50            # Hard cap on active trading pairs
 
 # Coin quality gate — Coinranking 10-point scoring system
 MIN_COIN_SCORE       = 7           # Coins scoring < 7/10 are never traded

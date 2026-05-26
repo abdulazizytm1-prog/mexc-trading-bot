@@ -28,11 +28,12 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import anthropic
 
 import config
+import news_filter
 import telegram_alerts as tg
 from coin_selector import CoinSelector
 from filters import check_atr_filter, check_correlation_guard, check_global_market, check_order_book
@@ -73,8 +74,9 @@ if not _decision_log.handlers:
     _decision_log.propagate = False
 
 _JOURNAL_PATH   = Path(__file__).parent / "trade-journal.json"
-_LOOP_INTERVAL  = 300   # 5 minutes between scans
-_CLAUDE_MODEL   = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+_LOOP_INTERVAL         = 300   # 5 minutes between scans
+_CLAUDE_MODEL          = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+_MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claude per cycle
 
 
 # ------------------------------------------------------------------ #
@@ -195,6 +197,110 @@ class ClaudeTrader:
             return "swing"
         return "daytrading"
 
+    def _evaluate_coin_signal(self, symbol: str) -> Optional[TradeSignal]:
+        """
+        Run all pre-Claude filters for one symbol and return a qualifying
+        TradeSignal, or None if any filter rejects it.
+
+        Filter order:
+          DEX spike → ATR → correlation → position limits → order book →
+          4H bullish structure → strategy signal (score ≥ 8, strength ≥ 0.8) →
+          active FVG or OB zone required → price within 1% of zone.
+        """
+        if self._ws_feed and self._ws_feed.is_dex_spike(symbol):
+            log.debug(
+                "[%s] DEX volume spike (%.0f%%) — skipped.",
+                symbol,
+                self._ws_feed.get_dex_ratio(symbol) * 100 if self._ws_feed else 0,
+            )
+            return None
+
+        try:
+            klines = self._api.get_klines(
+                symbol, config.PRIMARY_TIMEFRAME, config.CANDLE_LIMIT
+            )
+            if not klines:
+                return None
+
+            ws_price      = self._ws_feed.get_price(symbol) if self._ws_feed else None
+            current_price = ws_price or float(klines[-1][4])
+
+            # ATR filter
+            atr_check = check_atr_filter(klines, current_price)
+            if not atr_check["tradeable"]:
+                log.debug("[%s] ATR: %s", symbol, atr_check["reason"])
+                return None
+
+            # Correlation guard
+            corr_check = check_correlation_guard(symbol, self._risk_mgr.all_positions())
+            if not corr_check["allowed"]:
+                log.debug("[%s] Correlation: %s", symbol, corr_check["reason"])
+                return None
+
+            # Per-symbol position limit
+            if not self._risk_mgr.can_open_position(symbol):
+                return None
+
+            # Order book liquidity
+            ob_check = check_order_book(symbol, current_price, self._api)
+            if not ob_check["liquid_enough"]:
+                log.debug("[%s] Order book: %s", symbol, ob_check["reason"])
+                return None
+
+            # 4H market structure — must be BULLISH
+            htf_df = None
+            try:
+                htf_klines = self._api.get_klines(
+                    symbol,
+                    getattr(config, "HTF_TIMEFRAME", "4h"),
+                    getattr(config, "HTF_CANDLE_LIMIT", 50),
+                )
+                htf_df = candles_to_df(htf_klines) if htf_klines else None
+            except Exception:
+                pass
+
+            if htf_df is not None and not htf_df.empty:
+                structure = detect_market_structure(htf_df)
+                if structure.get("bias") != "BULLISH":
+                    log.debug(
+                        "[%s] HTF bias=%s — skipped.",
+                        symbol, structure.get("bias", "UNKNOWN"),
+                    )
+                    return None
+
+            # Strategy signal
+            df = candles_to_df(klines)
+            if df.empty:
+                return None
+
+            signal = generate_signal(symbol, df, htf_df=htf_df)
+            if signal is None or signal.score < 8 or signal.strength < 0.8:
+                return None
+
+            # Active FVG or OB zone required
+            if not (signal.fvg_present or signal.ob_present):
+                log.debug("[%s] No active FVG/OB zone — skipped.", symbol)
+                return None
+
+            # Price must be within 1% of the entry zone
+            if current_price > 0:
+                proximity_pct = abs(current_price - signal.entry_price) / signal.entry_price
+                if proximity_pct > 0.01:
+                    log.debug(
+                        "[%s] Price %.6f is %.2f%% from zone %.6f (>1%%) — skipped.",
+                        symbol, current_price, proximity_pct * 100, signal.entry_price,
+                    )
+                    return None
+
+            return signal
+
+        except MEXCAPIError as exc:
+            log.error("[%s] API error during signal evaluation: %s", symbol, exc)
+            return None
+        except Exception as exc:
+            log.exception("[%s] Unexpected error during signal evaluation: %s", symbol, exc)
+            return None
+
     def _ensure_sym_info(self, symbol: str) -> dict:
         if symbol not in self._sym_info_cache:
             try:
@@ -217,6 +323,7 @@ class ClaudeTrader:
         market_context: Any,
         positions_count: int,
         daily_pnl_pct: float,
+        crypto_sentiment: Optional[Dict[str, Any]] = None,
     ) -> str:
         risk        = signal.entry_price - signal.stop_loss
         rr_ratio    = round((signal.tp3 - signal.entry_price) / risk, 2) if risk > 0 else 0.0
@@ -237,6 +344,19 @@ class ClaudeTrader:
         breakdown_lines = "\n".join(
             f"    {k}: {v}/1" for k, v in signal.score_breakdown.items()
         ) if signal.score_breakdown else "    (not available)"
+
+        # News & sentiment section
+        if crypto_sentiment:
+            sent_str   = (
+                f"{crypto_sentiment['sentiment']} "
+                f"(score: {crypto_sentiment['score']:+.2f})"
+            )
+            news_lines = "\n".join(
+                f"    - {h}" for h in crypto_sentiment.get("top_news", [])
+            ) or "    (none available)"
+        else:
+            sent_str   = "N/A"
+            news_lines = "    (none available)"
 
         return f"""Analyze this trade signal and decide BUY or NO_TRADE.
 
@@ -264,6 +384,11 @@ MARKET CONTEXT:
   Fear & Greed index : {fear_greed}
   BTC bias           : {btc_bias}
 
+NEWS & SENTIMENT:
+  Crypto sentiment : {sent_str}
+  Recent headlines :
+{news_lines}
+
 ACCOUNT STATUS:
   Open positions : {positions_count}/{config.MAX_OPEN_POSITIONS}
   Daily P&L      : {daily_pnl_pct:+.2f}% (cap: -{config.DAILY_LOSS_CAP_PCT * 100:.0f}%)
@@ -277,6 +402,7 @@ Respond ONLY in the required JSON format."""
         market_context: Any,
         positions_count: int,
         daily_pnl_pct: float,
+        crypto_sentiment: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Sends a signal to Claude and returns the parsed decision dict, or None
@@ -285,7 +411,7 @@ Respond ONLY in the required JSON format."""
         Return keys: decision, confidence, reason, risk_level, invalidation
         """
         prompt = self._build_signal_prompt(
-            signal, market_context, positions_count, daily_pnl_pct
+            signal, market_context, positions_count, daily_pnl_pct, crypto_sentiment
         )
 
         for attempt in range(2):
@@ -705,6 +831,21 @@ Respond ONLY in the required JSON format."""
 
                 altcoin_restricted = self._market_ctx.is_altcoin_restricted()
 
+                # ── Gate 2b: News filter ──────────────────────────────────
+                news_check = news_filter.is_news_time()
+                if news_check["block"]:
+                    log.info(
+                        "[ClaudeTrader][NewsFilter] Blocking: %s",
+                        news_check["reason"],
+                    )
+                    tg.news_block(
+                        event     = news_check["event"],
+                        reason    = news_check["reason"],
+                        block_min = news_filter.BLOCK_WINDOW_MIN,
+                    )
+                    time.sleep(_LOOP_INTERVAL)
+                    continue
+
                 # ── Gate 3: Manual pause via /stop command ───────────────
                 if not self._cmd_handler.trading_enabled:
                     log.info("[ClaudeTrader] Trading paused via /stop — skipping entry scan.")
@@ -722,115 +863,72 @@ Respond ONLY in the required JSON format."""
                     time.sleep(_LOOP_INTERVAL)
                     continue
 
-                # ── Scan pairs ───────────────────────────────────────────
-                entries_this_cycle = 0
-                max_entries = 1 if altcoin_restricted else 2
+                # ── Sentiment snapshot for Claude context ─────────────────
+                crypto_sentiment = news_filter.get_crypto_sentiment()
+                log.info(
+                    "[ClaudeTrader][Sentiment] %s (score=%.2f) | top: %s",
+                    crypto_sentiment["sentiment"],
+                    crypto_sentiment["score"],
+                    "; ".join(crypto_sentiment["top_news"][:2]) or "none",
+                )
+
+                # ── Phase 1: Collect qualifying signals from full universe ─
+                qualifying: List[TradeSignal] = []
+                checked = 0
 
                 for symbol in active_pairs:
-                    if entries_this_cycle >= max_entries:
-                        break
-
-                    # Coin quality gate
                     coin_score = self._coin_sel.get_quality_score(symbol)
                     if coin_score < config.MIN_COIN_SCORE:
                         continue
+                    checked += 1
+                    sig = self._evaluate_coin_signal(symbol)
+                    if sig is not None:
+                        qualifying.append(sig)
 
-                    # DEX spike gate
-                    if self._ws_feed.is_dex_spike(symbol):
-                        log.warning(
-                            "[%s] DEX volume spike (%.0f%%) — skipped.",
-                            symbol, self._ws_feed.get_dex_ratio(symbol) * 100,
-                        )
+                # ── Phase 2: Rank by score; send top N to Claude ──────────
+                qualifying.sort(key=lambda s: s.score, reverse=True)
+                candidates = qualifying[:_MAX_CLAUDE_CANDIDATES]
+
+                log.info(
+                    "[Scan] %d coins checked → %d active signals → top %d sent to Claude",
+                    checked, len(qualifying), len(candidates),
+                )
+
+                entries_this_cycle = 0
+                max_entries        = 1 if altcoin_restricted else 2
+                positions_count    = self._risk_mgr.open_position_count()
+                daily_pnl_pct      = -self._risk_mgr.daily_loss_pct()
+
+                for signal in candidates:
+                    if entries_this_cycle >= max_entries:
+                        break
+
+                    symbol = signal.symbol
+
+                    # Re-check position constraints (state changes after each execution)
+                    corr_check = check_correlation_guard(symbol, self._risk_mgr.all_positions())
+                    if not corr_check["allowed"]:
+                        log.info("[%s] Correlation (re-check): %s", symbol, corr_check["reason"])
+                        continue
+                    if not self._risk_mgr.can_open_position(symbol):
                         continue
 
+                    log.info(
+                        "[%s] → Claude: score=%d/10 zone=%s kill=%s "
+                        "trade_type=%s entry=%.6f SL=%.6f TP3=%.6f",
+                        symbol, signal.score, signal.zone_type,
+                        signal.kill_zone, trade_type, signal.entry_price,
+                        signal.stop_loss, signal.tp3,
+                    )
+
                     try:
-                        klines = self._api.get_klines(
-                            symbol, config.PRIMARY_TIMEFRAME, config.CANDLE_LIMIT
-                        )
-                        if not klines:
-                            continue
-
-                        ws_price      = self._ws_feed.get_price(symbol)
-                        current_price = ws_price or float(klines[-1][4])
-
-                        # ── a. ATR filter ────────────────────────────────
-                        atr_check = check_atr_filter(klines, current_price)
-                        if not atr_check["tradeable"]:
-                            log.debug("[%s] ATR: %s", symbol, atr_check["reason"])
-                            continue
-
-                        # ── b. Correlation guard ─────────────────────────
-                        corr_check = check_correlation_guard(
-                            symbol, self._risk_mgr.all_positions()
-                        )
-                        if not corr_check["allowed"]:
-                            log.info("[%s] Correlation: %s", symbol, corr_check["reason"])
-                            continue
-
-                        # ── c. Per-symbol position check ──────────────────
-                        if not self._risk_mgr.can_open_position(symbol):
-                            continue
-
-                        # ── d. Order book liquidity ───────────────────────
-                        ob_check = check_order_book(symbol, current_price, self._api)
-                        if not ob_check["liquid_enough"]:
-                            log.info("[%s] Order book: %s", symbol, ob_check["reason"])
-                            continue
-
-                        # ── e. 4H market structure ────────────────────────
-                        htf_df = None
-                        try:
-                            htf_klines = self._api.get_klines(
-                                symbol,
-                                getattr(config, "HTF_TIMEFRAME", "4h"),
-                                getattr(config, "HTF_CANDLE_LIMIT", 50),
-                            )
-                            htf_df = candles_to_df(htf_klines) if htf_klines else None
-                        except Exception:
-                            pass
-
-                        if htf_df is not None and not htf_df.empty:
-                            structure = detect_market_structure(htf_df)
-                            if structure.get("bias") != "BULLISH":
-                                log.debug(
-                                    "[%s] HTF bias=%s — skipped.",
-                                    symbol, structure.get("bias", "UNKNOWN"),
-                                )
-                                continue
-
-                        # ── f. Strategy signal ────────────────────────────
-                        df = candles_to_df(klines)
-                        if df.empty:
-                            continue
-
-                        signal = generate_signal(symbol, df, htf_df=htf_df)
-                        if signal is None or signal.score < 8:
-                            continue
-
-                        if signal.strength < 0.8:
-                            continue
-
-                        log.info(
-                            "[%s] Signal qualified: score=%d/10 zone=%s kill=%s "
-                            "trade_type=%s entry=%.6f SL=%.6f TP3=%.6f | sending to Claude…",
-                            symbol, signal.score, signal.zone_type,
-                            signal.kill_zone, trade_type, signal.entry_price,
-                            signal.stop_loss, signal.tp3,
-                        )
-
-                        # ── g. Claude review ──────────────────────────────
-                        positions_count = self._risk_mgr.open_position_count()
-                        daily_pnl_pct   = -self._risk_mgr.daily_loss_pct()
-
                         response = self.analyze_signal_with_claude(
-                            signal, ctx, positions_count, daily_pnl_pct
+                            signal, ctx, positions_count, daily_pnl_pct,
+                            crypto_sentiment,
                         )
 
                         if response is None:
-                            log.warning(
-                                "[%s] Claude unavailable — skipping (fallback: run main.py).",
-                                symbol,
-                            )
+                            log.warning("[%s] Claude unavailable — skipping.", symbol)
                             continue
 
                         self._log_decision(symbol, response, trade_type)
@@ -851,7 +949,7 @@ Respond ONLY in the required JSON format."""
                             )
                             continue
 
-                        # ── h. Execute ────────────────────────────────────
+                        # ── Execute ───────────────────────────────────────
                         log.info(
                             "[%s] Claude APPROVED (confidence=%d, risk=%s) — executing.",
                             symbol, confidence, response.get("risk_level", ""),
@@ -863,7 +961,6 @@ Respond ONLY in the required JSON format."""
                             entries_this_cycle += 1
                             self._log_trade(signal, response, fill_price, quantity, order_id)
 
-                            # Alert: trade opened
                             risk = fill_price - signal.stop_loss
                             rr   = round((signal.tp3 - fill_price) / risk, 1) if risk > 0 else 3
                             tg.trade_opened(
@@ -879,9 +976,9 @@ Respond ONLY in the required JSON format."""
                             )
 
                     except MEXCAPIError as exc:
-                        log.error("[%s] API error during scan: %s", symbol, exc)
+                        log.error("[%s] API error during Claude evaluation: %s", symbol, exc)
                     except Exception as exc:
-                        log.exception("[%s] Unexpected error during scan: %s", symbol, exc)
+                        log.exception("[%s] Unexpected error during evaluation: %s", symbol, exc)
 
                 elapsed   = time.time() - loop_start
                 sleep_for = max(0.0, _LOOP_INTERVAL - elapsed)

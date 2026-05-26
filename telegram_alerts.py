@@ -252,6 +252,19 @@ def market_filter(reason: str, btc_dom: Optional[float] = None) -> bool:
     return _send(text)
 
 
+def news_block(event: str, reason: str, block_min: int = 30) -> bool:
+    """
+    ⚠️ NEWS FILTER ACTIVE  (sent when a high-impact news event blocks entries)
+    """
+    text = (
+        f"⚠️ NEWS FILTER ACTIVE\n"
+        f"Event: {event}\n"
+        f"{reason}\n"
+        f"Trading paused {block_min} min"
+    )
+    return _send(text)
+
+
 # ------------------------------------------------------------------ #
 #  Interactive command handler                                         #
 # ------------------------------------------------------------------ #
