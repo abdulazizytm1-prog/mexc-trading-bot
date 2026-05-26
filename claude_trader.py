@@ -190,11 +190,6 @@ class ClaudeTrader:
     #  Internal helpers                                                 #
     # ---------------------------------------------------------------- #
 
-    def _is_claude_session(self) -> bool:
-        """London 07:00–10:00 UTC or NY 13:00–16:00 UTC only."""
-        hour = datetime.now(timezone.utc).hour
-        return (7 <= hour < 10) or (13 <= hour < 16)
-
     def _determine_trade_type(self) -> str:
         """Return 'swing' for 4H/Daily timeframes, 'daytrading' for 1H/15M."""
         tf = getattr(config, "PRIMARY_TIMEFRAME", "60m").lower()
@@ -881,19 +876,18 @@ Respond ONLY in the required JSON format."""
                 # ── Always: check exits ──────────────────────────────────
                 self._handle_exits()
 
-                # ── Gate 1: Kill zone check ──────────────────────────────
-                if not self._is_claude_session():
-                    log.debug("[ClaudeTrader] Outside Claude session — sleeping.")
-                    time.sleep(_LOOP_INTERVAL)
-                    continue
-
+                # ── Gate 1: Weekend check (only hard block) ──────────────
                 kill_zone = detect_kill_zone()
                 if kill_zone is None:
-                    log.info("[Diag] Kill zone: NONE ✗ (outside session)")
-                    log.debug("[ClaudeTrader] No active ICT kill zone — sleeping.")
+                    log.info("[Diag] Kill zone: weekend ✗ (no trading Sat/Sun)")
                     time.sleep(_LOOP_INTERVAL)
                     continue
-                log.info("[Diag] Kill zone: %s ✓", kill_zone)
+                if kill_zone == "OFF_HOURS":
+                    log.info("[Diag] Kill zone: OFF_HOURS — scanning anyway (no bonus)")
+                elif kill_zone == "FRIDAY_REDUCED":
+                    log.info("[Diag] Kill zone: FRIDAY_REDUCED — half position size")
+                else:
+                    log.info("[Diag] Kill zone: %s ✓ (+1 bonus)", kill_zone)
 
                 # ── Gate 2: Global market filter ─────────────────────────
                 trade_type = self._determine_trade_type()

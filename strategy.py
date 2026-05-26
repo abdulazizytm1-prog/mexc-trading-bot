@@ -276,46 +276,41 @@ def _recency_score(formed_at: int, total_candles: int) -> float:
 
 def detect_kill_zone(dt: Optional[datetime] = None) -> Optional[str]:
     """
-    Returns the active ICT Kill Zone name, or None if outside trading hours.
+    Returns the active ICT Kill Zone name, "OFF_HOURS" for weekday off-session,
+    or None only on weekends (the sole hard block).
 
-    Active kill zones (UTC):
-      London Open   07:00 – 10:00  Tue–Thu (full size)
-      New York Open 13:00 – 16:00  Tue–Thu (full size)
-      London Close  15:00 – 17:00  Tue–Thu (full size; overlaps NY 15–16)
+    Active sessions (UTC) — award +1 score bonus:
+      London Open   07:00 – 10:00  Mon–Thu
+      New York Open 13:00 – 16:00  Mon–Thu
+      London Close  15:00 – 17:00  Mon–Thu  (overlaps NY 15–16)
+      Friday        any session    → "FRIDAY_REDUCED" (no score bonus; half size)
 
-    Special days:
-      Monday  → None        (accumulation day — no new entries)
-      Friday  → "FRIDAY_REDUCED" if in kill zone hours (half position size)
-      Sat/Sun → None        (weekend — no trade)
+    Off-session weekdays → "OFF_HOURS" (no score bonus, NOT a hard block).
+    Weekends (Sat/Sun)   → None       (hard block — no trading).
 
     Returns
     -------
-    "LONDON" | "NEW_YORK" | "LONDON_CLOSE" | "FRIDAY_REDUCED" | None
+    "LONDON" | "NEW_YORK" | "LONDON_CLOSE" | "FRIDAY_REDUCED" | "OFF_HOURS" | None
     """
     now = dt or datetime.now(timezone.utc)
     weekday = now.weekday()   # 0 = Monday … 6 = Sunday
     hour    = now.hour
 
-    # Weekend
+    # Weekend — only hard block
     if weekday >= 5:
-        return None
-
-    # Monday — accumulation, skip
-    if weekday == 0:
         return None
 
     in_london       = 7  <= hour < 10
     in_ny           = 13 <= hour < 16
     in_london_close = 15 <= hour < 17
 
-    # Friday — only reduced-size entries during active hours
+    # Friday — reduced-size entries during active hours; off-hours allowed too
     if weekday == 4:
         if in_london or in_ny or in_london_close:
             return "FRIDAY_REDUCED"
-        return None
+        return "OFF_HOURS"
 
-    # Tuesday – Thursday: full sessions
-    # London Close takes priority over NY in the 15:00-15:59 overlap
+    # Monday – Thursday: full sessions with bonus; off-session still scans
     if in_london_close:
         return "LONDON_CLOSE"
     if in_ny:
@@ -323,7 +318,7 @@ def detect_kill_zone(dt: Optional[datetime] = None) -> Optional[str]:
     if in_london:
         return "LONDON"
 
-    return None
+    return "OFF_HOURS"
 
 
 # ------------------------------------------------------------------ #
@@ -820,11 +815,16 @@ def generate_signal(
     # ── 1. Kill zone ─────────────────────────────────────────────────────────
     kill_zone = detect_kill_zone()
     if kill_zone is None:
-        log.info("[%s] generate_signal: outside kill zone — skipping", symbol)
-        return None                          # weekend / Monday / off-hours hard block
-    if kill_zone != "FRIDAY_REDUCED":
+        log.info("[%s] generate_signal: weekend — hard block", symbol)
+        return None                          # Sat/Sun only hard block
+    if kill_zone in ("LONDON", "NEW_YORK", "LONDON_CLOSE"):
         score_bd["kill_zone"] = 1
-    log.info("[%s] generate_signal: kill_zone=%s", symbol, kill_zone)
+        log.info("[%s] generate_signal: kill_zone=%s (+1 bonus)", symbol, kill_zone)
+    elif kill_zone == "OFF_HOURS":
+        log.info("[%s] generate_signal: outside kill zone — scanning anyway (no bonus)", symbol)
+    else:
+        # FRIDAY_REDUCED: no score bonus, half position size applied upstream
+        log.info("[%s] generate_signal: kill_zone=%s (no bonus)", symbol, kill_zone)
     # FRIDAY_REDUCED: allowed but no +1 score, and position size halved upstream
 
     # ── 2. Market structure (4H bias) ────────────────────────────────────────
