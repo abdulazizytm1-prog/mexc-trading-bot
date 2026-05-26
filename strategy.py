@@ -36,8 +36,10 @@ from config import (
 
 log = logging.getLogger(__name__)
 
-# Minimum confluence score to emit a BUY signal (out of 10)
-_MIN_SCORE = 8
+# Minimum confluence score to emit a BUY signal (out of 10).
+# Claude API acts as the final quality gate (requires confidence >= 8/10),
+# so pre-Claude signals can be looser.
+_MIN_SCORE = 6
 
 
 # ------------------------------------------------------------------ #
@@ -181,10 +183,12 @@ def detect_fvgs(df: pd.DataFrame) -> List[FairValueGap]:
     for fvg in fvgs:
         for j in range(fvg.formed_at + 1, n):
             c = df.iloc[j]
-            if fvg.type == "bullish" and c["low"] <= fvg.bottom:
+            # Use close price for fill — a wick that touches the gap but
+            # closes back above is NOT a fill (price defended the zone).
+            if fvg.type == "bullish" and c["close"] <= fvg.bottom:
                 fvg.filled = True
                 break
-            if fvg.type == "bearish" and c["high"] >= fvg.top:
+            if fvg.type == "bearish" and c["close"] >= fvg.top:
                 fvg.filled = True
                 break
 
@@ -492,7 +496,9 @@ def detect_premium_discount(df: pd.DataFrame) -> dict:
     else:
         zone = "EQUILIBRIUM"
 
-    ote_zone = 62.0 <= position_pct <= 79.0
+    # OTE (Optimal Trade Entry) = deep discount zone, 25–50 % of range.
+    # Original 62–79 % conflicted with DISCOUNT (< 50 %) and was never earnable.
+    ote_zone = 25.0 <= position_pct <= 50.0
 
     return {
         "zone":         zone,
@@ -631,9 +637,9 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     """
     True when candle at `idx` is a strong bullish displacement candle:
       - Bullish (close > open)
-      - Body ≥ 0.5 % of close price
+      - Body ≥ 0.3 % of close price
       - Upper wick ≤ 20 % of candle range (closes near high)
-      - Volume ≥ 1.5 × 20-candle average volume
+      - Volume ≥ 1.2 × 20-candle average volume
     """
     if idx < 0 or idx >= len(df):
         return False
@@ -656,7 +662,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     upper_wick  = high - close
     wick_ratio  = upper_wick / candle_range
 
-    if body_pct < 0.005:      # body < 0.5 %
+    if body_pct < 0.003:      # body < 0.3 %
         return False
     if wick_ratio > 0.20:     # wick > 20 % of range
         return False
@@ -665,7 +671,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     start      = max(0, idx - 20)
     avg_vol    = float(df.iloc[start:idx]["volume"].mean()) if idx > start else 0.0
     candle_vol = float(c["volume"])
-    if avg_vol > 0 and candle_vol < 1.5 * avg_vol:
+    if avg_vol > 0 and candle_vol < 1.2 * avg_vol:
         return False
 
     return True
@@ -821,14 +827,16 @@ def generate_signal(
         f for f in fvgs
         if f.type == "bullish"
         and not f.filled
-        and f.bottom <= current_price <= f.top
-        and f.bottom < equilibrium        # must sit in discount half
+        and current_price <= f.top * 1.005  # inside OR within 0.5 % above gap top
+        and f.bottom < current_price * 1.005  # price has not fallen far below gap
+        and f.bottom < equilibrium             # must sit in discount half
     ]
     active_bull_obs = [
         o for o in obs
         if o.type == "bullish"
         and not o.mitigated
-        and o.bottom <= current_price <= o.top
+        and current_price <= o.top * 1.005  # inside OR within 0.5 % above OB top
+        and o.bottom < current_price * 1.005
         and o.bottom < equilibrium
     ]
 
@@ -860,8 +868,8 @@ def generate_signal(
 
     if has_fvg:
         score_bd["fvg"] = 1
-    if has_ob and has_fvg:
-        score_bd["ob"] = 1   # OB only adds score when confluent with FVG
+    if has_ob:
+        score_bd["ob"] = 1   # OB scores independently; extra +1 when also FVG
 
     # Must have at least one zone to enter
     if not has_fvg and not has_ob:
