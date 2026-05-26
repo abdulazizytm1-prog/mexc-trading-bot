@@ -57,7 +57,7 @@ MAX_RISK_PER_TRADE_PCT      = 0.01   # 1% of account balance at risk per trade
 DAILY_LOSS_CAP_PCT          = 0.03   # Halt new entries after 3% intraday loss
 WEEKLY_LOSS_CAP_PCT         = 0.08   # Halt new entries after 8% weekly loss
 MAX_OPEN_POSITIONS          = 2      # Max simultaneous open positions
-MAX_DAILY_TRADES            = 2      # Max new entries per calendar day
+MAX_DAILY_TRADES            = 4      # Max new entries per calendar day
 MAX_POSITION_PCT_OF_BALANCE = 0.10   # Hard cap: never spend > 10% on one trade
 
 # Loop timing

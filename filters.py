@@ -55,7 +55,7 @@ def check_atr_filter(candles: List, current_price: float) -> Dict[str, Any]:
 
     atr_pct = atr / current_price * 100.0
 
-    if atr_pct > 3.0:
+    if atr_pct > 4.0:
         return {
             "tradeable": False,
             "atr_pct": round(atr_pct, 3),
@@ -138,14 +138,22 @@ def check_fake_bos(candles: List, swing_high: float) -> Dict[str, Any]:
 
 # ── 3. Correlation guard ──────────────────────────────────────────────────
 
-def check_correlation_guard(symbol: str, open_positions: Dict[str, Any]) -> Dict[str, Any]:
+def check_correlation_guard(
+    symbol: str,
+    open_positions: Dict[str, Any],
+    allow_extra_correlated: bool = False,
+) -> Dict[str, Any]:
     """
-    Prevents opening multiple correlated positions simultaneously.
+    Prevents opening too many correlated positions simultaneously.
 
     Groups:
-      Group 1 : BTC, ETH, SOL, BNB         — max 1 open at a time
-      Group 2 : XRP, ADA, AVAX, DOT, MATIC — max 1 open at a time
+      Group 1 : BTC, ETH, SOL, BNB         — max 1 open normally, 2 in bull market
+      Group 2 : XRP, ADA, AVAX, DOT, MATIC — max 1 open normally, 2 in bull market
       Group 3 : everything else             — no intra-group limit
+
+    allow_extra_correlated=True (bull market: BTC 4H candle up > 1%) raises the
+    per-group cap from 1 to 2, allowing a second correlated pair when momentum is
+    strongly aligned.
 
     Returns:
         allowed : bool
@@ -162,16 +170,18 @@ def check_correlation_guard(symbol: str, open_positions: Dict[str, Any]) -> Dict
     if new_group == 3:
         return {"allowed": True, "reason": "group 3 — no correlation limit"}
 
-    for existing_sym in open_positions:
-        if existing_sym == symbol:
-            continue
-        if _group(existing_sym) == new_group:
-            return {
-                "allowed": False,
-                "reason": (
-                    f"correlation limit: {existing_sym} already open in group {new_group}"
-                ),
-            }
+    max_corr  = 2 if allow_extra_correlated else 1
+    corr_open = sum(1 for s in open_positions if s != symbol and _group(s) == new_group)
+
+    if corr_open >= max_corr:
+        bull_note = " (bull market mode: max 2)" if allow_extra_correlated else ""
+        return {
+            "allowed": False,
+            "reason": (
+                f"correlation limit: {corr_open} position(s) already open "
+                f"in group {new_group}{bull_note}"
+            ),
+        }
 
     return {"allowed": True, "reason": f"group {new_group} — no conflict"}
 
@@ -283,7 +293,7 @@ def check_global_market(market_context: Any, trade_type: str = "") -> Dict[str, 
     if trade_type == "swing":
         btc_dom_limit = 60.0
     elif trade_type == "daytrading":
-        btc_dom_limit = 65.0
+        btc_dom_limit = 70.0
     else:
         btc_dom_limit = 58.0
 

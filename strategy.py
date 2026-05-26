@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 # Minimum confluence score to emit a BUY signal (out of 10).
 # Claude API acts as the final quality gate (requires confidence >= 8/10),
 # so pre-Claude signals can be looser.
-_MIN_SCORE = 6
+_MIN_SCORE = 5
 
 
 # ------------------------------------------------------------------ #

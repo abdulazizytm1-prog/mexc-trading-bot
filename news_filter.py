@@ -42,7 +42,7 @@ _FEAR_GREED_URL   = "https://api.alternative.me/fng/?limit=1"
 
 # ── Timing ────────────────────────────────────────────────────────────────────
 
-BLOCK_WINDOW_MIN    = 30     # block N minutes BEFORE and AFTER a high-impact event
+BLOCK_WINDOW_MIN    = 15     # block N minutes BEFORE and AFTER a high-impact event
 _HTTP_TIMEOUT       =  8     # seconds per HTTP request
 _CALENDAR_CACHE_TTL = 3600   # re-fetch economic calendar once per hour
 _RSS_CACHE_TTL      =  600   # re-fetch RSS feeds every 10 minutes

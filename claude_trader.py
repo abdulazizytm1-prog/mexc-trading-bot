@@ -74,8 +74,8 @@ if not _decision_log.handlers:
     _decision_log.propagate = False
 
 _JOURNAL_PATH          = Path(__file__).parent / "trade-journal.json"
-_LOOP_INTERVAL         = 300   # 5 minutes between scans
-_SMART_EXIT_INTERVAL   = 900   # 15 minutes between smart exit checks
+_LOOP_INTERVAL         = 180   # 3 minutes between scans
+_SMART_EXIT_INTERVAL   = 480   # 8 minutes between smart exit checks
 _CLAUDE_MODEL          = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 _MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claude per cycle
 
@@ -218,7 +218,24 @@ class ClaudeTrader:
             return "swing"
         return "daytrading"
 
-    def _evaluate_coin_signal(self, symbol: str, trade_type: str = "") -> Optional[TradeSignal]:
+    def _btc_bull_4h(self) -> bool:
+        """Returns True when the last closed 4H BTC candle gained more than 1%."""
+        try:
+            klines = self._api.get_klines("BTCUSDT", "4h", 3)
+            if klines and len(klines) >= 2:
+                last_open  = float(klines[-1][1])
+                last_close = float(klines[-1][4])
+                return last_close > 0 and (last_close - last_open) / last_open > 0.01
+        except Exception:
+            pass
+        return False
+
+    def _evaluate_coin_signal(
+        self,
+        symbol: str,
+        trade_type: str = "",
+        allow_extra_correlated: bool = False,
+    ) -> Optional[TradeSignal]:
         """
         Run all pre-Claude filters for one symbol and return a qualifying
         TradeSignal, or None if any filter rejects it.
@@ -226,7 +243,7 @@ class ClaudeTrader:
         Filter order:
           DEX spike → ATR → correlation → position limits → order book →
           4H structure (BEARISH always blocked; NEUTRAL allowed for daytrading) →
-          strategy signal (score ≥ 8, strength ≥ 0.65) →
+          strategy signal (score ≥ 5, strength ≥ 0.65) →
           active FVG or OB zone required → price within 1% of zone.
 
         Emits [Diag] log lines at each checkpoint and updates self._scan_stats
@@ -262,7 +279,9 @@ class ClaudeTrader:
             log.info("[Diag] %s | ATR: %.2f%% ✓", symbol, atr_check.get("atr_pct", 0.0))
 
             # ── Correlation guard ──────────────────────────────────────────
-            corr_check = check_correlation_guard(symbol, self._risk_mgr.all_positions())
+            corr_check = check_correlation_guard(
+                symbol, self._risk_mgr.all_positions(), allow_extra_correlated
+            )
             if not corr_check["allowed"]:
                 log.info(
                     "[Diag] %s | Correlation: blocked (%s) ✗",
@@ -337,9 +356,9 @@ class ClaudeTrader:
                 st["no_signal"] = st.get("no_signal", 0) + 1
                 return None
 
-            if signal.score < 8:
+            if signal.score < 5:
                 log.info(
-                    "[Diag] %s | Signal: score=%d/10 ✗ (below 8)",
+                    "[Diag] %s | Signal: score=%d/10 ✗ (below 5)",
                     symbol, signal.score,
                 )
                 if not signal.liquidity_sweep:
@@ -1408,6 +1427,13 @@ Respond ONLY in the required JSON format."""
                     "; ".join(crypto_sentiment["top_news"][:2]) or "none",
                 )
 
+                # ── BTC 4H bull market check (once per cycle) ────────────
+                # Allows 2 correlated pairs instead of 1 when BTC 4H candle
+                # is up more than 1% — momentum is strongly aligned.
+                bull_4h = self._btc_bull_4h()
+                if bull_4h:
+                    log.info("[Diag] BTC 4H bull (+1%%) — correlation guard relaxed to 2")
+
                 # ── Phase 1: Collect qualifying signals from full universe ─
                 self._scan_stats = {k: 0 for k in (
                     "dex_spike", "atr", "correlation", "position_limit",
@@ -1422,7 +1448,9 @@ Respond ONLY in the required JSON format."""
                     if coin_score < config.MIN_COIN_SCORE:
                         continue
                     checked += 1
-                    sig = self._evaluate_coin_signal(symbol, trade_type=trade_type)
+                    sig = self._evaluate_coin_signal(
+                        symbol, trade_type=trade_type, allow_extra_correlated=bull_4h
+                    )
                     if sig is not None:
                         qualifying.append(sig)
 
@@ -1481,7 +1509,9 @@ Respond ONLY in the required JSON format."""
                     symbol = signal.symbol
 
                     # Re-check position constraints (state changes after each execution)
-                    corr_check = check_correlation_guard(symbol, self._risk_mgr.all_positions())
+                    corr_check = check_correlation_guard(
+                        symbol, self._risk_mgr.all_positions(), bull_4h
+                    )
                     if not corr_check["allowed"]:
                         log.info("[%s] Correlation (re-check): %s", symbol, corr_check["reason"])
                         continue
