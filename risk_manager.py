@@ -34,10 +34,11 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from config import (
     DAILY_LOSS_CAP_PCT,
@@ -89,6 +90,11 @@ class Position:
     open_time:         str   = ""    # ISO timestamp of entry
     score:             int   = 0     # ICT signal score 0–10
     entry_atr:         float = 0.0   # ATR at entry time (used for trailing)
+
+    # ── OCO exchange-side order tracking ──────────────────────────────
+    oco_list_id:  str   = ""    # orderListId returned by MEXC OCO placement
+    oco_tp_price: float = 0.0   # TP price the OCO was placed at
+    oco_sl_price: float = 0.0   # SL price the OCO was placed at
 
     # ── Computed helpers ──────────────────────────────────────────────
 
@@ -142,6 +148,9 @@ def _pos_to_dict(pos: Position) -> dict:
         "entry_atr":         pos.entry_atr,
         "order_id":          pos.order_id,
         "zone_type":         pos.zone_type,
+        "oco_list_id":       pos.oco_list_id,
+        "oco_tp_price":      pos.oco_tp_price,
+        "oco_sl_price":      pos.oco_sl_price,
     }
 
 
@@ -166,6 +175,9 @@ def _pos_from_dict(d: dict) -> Position:
         open_time         = d.get("open_time", ""),
         score             = int(d.get("score", 0)),
         entry_atr         = float(d.get("entry_atr", 0)),
+        oco_list_id       = d.get("oco_list_id", ""),
+        oco_tp_price      = float(d.get("oco_tp_price", 0)),
+        oco_sl_price      = float(d.get("oco_sl_price", 0)),
     )
 
 
@@ -567,15 +579,125 @@ class RiskManager:
         return len(self._positions)
 
     # ------------------------------------------------------------------ #
+    #  OCO exchange-side order management                                  #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _format_price(price: float, tick_size: float) -> str:
+        if tick_size > 0:
+            decimals = max(0, round(-math.log10(tick_size)))
+            price = math.floor(price / tick_size) * tick_size
+            return f"{price:.{decimals}f}"
+        return f"{price:.8f}".rstrip("0").rstrip(".")
+
+    def place_oco_for_position(
+        self,
+        symbol:    str,
+        api:       Any,
+        tp_price:  float,
+        sl_price:  float,
+        tick_size: float = 0.0,
+    ) -> bool:
+        """
+        Place an OCO (TP limit + SL stop-limit) on the exchange for the open
+        position.  Saves orderListId to the Position and persists to disk.
+
+        Returns True on success, False on failure (soft failure — never raises).
+        Retries once after 3 seconds on the first error.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None:
+            return False
+
+        qty      = pos.remaining_qty()
+        tp_str   = self._format_price(tp_price, tick_size)
+        sl_str   = self._format_price(sl_price, tick_size)
+
+        for attempt in (1, 2):
+            try:
+                result = api.place_oco_order(
+                    symbol          = symbol,
+                    side            = "SELL",
+                    quantity        = qty,
+                    price           = tp_str,
+                    stop_price      = sl_str,
+                    stop_limit_price= sl_str,
+                )
+                list_id = str(result.get("orderListId", ""))
+                if not list_id or list_id == "0":
+                    raise ValueError(f"unexpected response: {result}")
+
+                pos.oco_list_id  = list_id
+                pos.oco_tp_price = tp_price
+                pos.oco_sl_price = sl_price
+                self.save_positions()
+                log.info(
+                    "[OCO] Placed for %s: TP=$%s  SL=$%s  (orderListId=%s)",
+                    symbol, tp_str, sl_str, list_id,
+                )
+                return True
+            except Exception as exc:
+                if attempt == 1:
+                    log.warning(
+                        "[OCO] Place failed for %s (attempt 1): %s — retrying in 3s",
+                        symbol, exc,
+                    )
+                    time.sleep(3)
+                else:
+                    log.error(
+                        "[OCO] Place failed for %s (attempt 2): %s — keeping software SL/TP",
+                        symbol, exc,
+                    )
+        return False
+
+    def cancel_oco_for_position(self, symbol: str, api: Any) -> bool:
+        """
+        Cancel any live OCO order for the position and clear the stored id.
+
+        Returns True on success or when there is no OCO to cancel.
+        Returns False only when a live OCO exists but the cancel call fails.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None or not pos.oco_list_id:
+            return True
+
+        list_id = pos.oco_list_id
+        try:
+            api.cancel_oco_order(symbol, list_id)
+            log.info("[OCO] Cancelled for %s (orderListId=%s)", symbol, list_id)
+        except Exception as exc:
+            log.warning(
+                "[OCO] Cancel failed for %s (orderListId=%s): %s",
+                symbol, list_id, exc,
+            )
+            return False
+        finally:
+            # Clear the id regardless so we don't attempt to cancel a stale order again
+            pos.oco_list_id  = ""
+            pos.oco_tp_price = 0.0
+            pos.oco_sl_price = 0.0
+            self.save_positions()
+
+        return True
+
+    # ------------------------------------------------------------------ #
     #  Partial TP state transitions                                        #
     # ------------------------------------------------------------------ #
 
-    def handle_tp1_hit(self, symbol: str) -> None:
+    def handle_tp1_hit(
+        self,
+        symbol:    str,
+        api:       Any  = None,
+        tick_size: float = 0.0,
+    ) -> None:
         """
-        Mark TP1 as hit, activate break-even stop loss.
+        Mark TP1 as hit, activate break-even stop loss, refresh OCO.
 
         Break-even SL = effective_entry × (1 + fee_buffer)
         so the trade cannot close at a loss even after fees.
+
+        If api is supplied: cancel the existing OCO, then place a new one
+        (TP=tp2, SL=break-even).
         """
         pos = self._positions.get(symbol)
         if pos is None or pos.tp1_hit:
@@ -595,10 +717,22 @@ class RiskManager:
         )
         self.save_positions()
 
-    def handle_tp2_hit(self, symbol: str) -> None:
+        if api is not None and pos.tp2 > 0:
+            self.cancel_oco_for_position(symbol, api)
+            self.place_oco_for_position(symbol, api, pos.tp2, pos.stop_loss, tick_size)
+
+    def handle_tp2_hit(
+        self,
+        symbol:    str,
+        api:       Any  = None,
+        tick_size: float = 0.0,
+    ) -> None:
         """
-        Mark TP2 as hit, activate ATR trailing stop.
+        Mark TP2 as hit, activate ATR trailing stop, refresh OCO.
         Actual trail distance is applied by update_trailing_stop() each candle.
+
+        If api is supplied: cancel the existing OCO, then place a new one
+        (TP=tp3, SL=current stop_loss).
         """
         pos = self._positions.get(symbol)
         if pos is None or pos.tp2_hit:
@@ -611,6 +745,10 @@ class RiskManager:
             symbol, pos.entry_atr,
         )
         self.save_positions()
+
+        if api is not None and pos.tp3 > 0:
+            self.cancel_oco_for_position(symbol, api)
+            self.place_oco_for_position(symbol, api, pos.tp3, pos.stop_loss, tick_size)
 
     def update_trailing_stop(
         self,

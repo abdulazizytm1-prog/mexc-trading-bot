@@ -287,6 +287,63 @@ class MEXCSpotAPI:
     def cancel_order(self, symbol: str, order_id: str) -> Dict:
         return self._delete("/api/v3/order", {"symbol": symbol, "orderId": order_id})
 
+    # ── OCO (One-Cancels-Other) ───────────────────────────────────────
+
+    def place_oco_order(
+        self,
+        symbol:           str,
+        side:             str,
+        quantity:         float,
+        price:            float,
+        stop_price:       float,
+        stop_limit_price: float,
+    ) -> Dict:
+        """
+        Place an OCO order on MEXC spot.
+
+        One leg is a LIMIT order at `price` (take-profit).
+        The other leg is a STOP_LIMIT that triggers at `stop_price` and
+        fills as a LIMIT at `stop_limit_price` (stop-loss, set ~0.1% below
+        trigger to absorb slippage while still guaranteeing a near-market fill).
+
+        For long exits:
+          side              = "SELL"
+          price             = take-profit price
+          stop_price        = SL trigger price
+          stop_limit_price  = stop_price * 0.999
+
+        Returns the full MEXC response dict (contains ``orderListId``).
+        Raises MEXCAPIError on exchange rejection.
+        """
+        return self._post("/api/v3/order/oco", {
+            "symbol":               symbol,
+            "side":                 side,
+            "quantity":             quantity,
+            "price":                price,
+            "stopPrice":            stop_price,
+            "stopLimitPrice":       stop_limit_price,
+            "stopLimitTimeInForce": "GTC",
+        })
+
+    def cancel_oco_order(self, symbol: str, order_list_id: str) -> Dict:
+        """
+        Cancel an active OCO order by its ``orderListId``.
+        Both legs are cancelled atomically.
+        Raises MEXCAPIError on failure.
+        """
+        return self._delete("/api/v3/orderList", {
+            "symbol":      symbol,
+            "orderListId": order_list_id,
+        })
+
+    def get_oco_order(self, order_list_id: str) -> Dict:
+        """
+        Query OCO order status by ``orderListId``.
+        Useful for checking whether the OCO is still ACTIVE or
+        already FILLED / CANCELLED (e.g. on bot restart).
+        """
+        return self._get("/api/v3/orderList", {"orderListId": order_list_id}, signed=True)
+
     def cancel_all_orders(self, symbol: str) -> List:
         return self._delete("/api/v3/openOrders", {"symbol": symbol})
 

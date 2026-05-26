@@ -667,6 +667,11 @@ Respond ONLY in the required JSON format."""
                 entry_atr   = getattr(signal, "atr", 0.0),
             )
             self._risk_mgr.add_position(position)
+            # Exchange-side crash protection: OCO covers TP1 and SL
+            self._risk_mgr.place_oco_for_position(
+                symbol, self._api, tp1, safe_sl,
+                sym_info.get("tick_size", 0.0),
+            )
 
             log.info(
                 "[%s] BUY %.6f @ %.6f (fill) | SL=%.6f | TP1=%.6f TP2=%.6f TP3=%.6f "
@@ -705,25 +710,35 @@ Respond ONLY in the required JSON format."""
                     symbol, reason, price, current_pos.effective_entry,
                 )
 
+                sym_info  = self._ensure_sym_info(symbol)
+                tick_size = sym_info.get("tick_size", 0.0)
+
                 if reason == "TP1":
+                    # Cancel OCO first to prevent double-execution with the exchange order
+                    self._risk_mgr.cancel_oco_for_position(symbol, self._api)
                     sell_qty = current_pos.partial_qty(1)
                     self._api.place_market_sell(symbol, sell_qty)
                     pnl = (price - current_pos.effective_entry) * sell_qty
                     self._risk_mgr.record_closed_pnl(pnl)
-                    self._risk_mgr.handle_tp1_hit(symbol)
+                    # handle_tp1_hit sets break-even SL and places new OCO (TP2/BE)
+                    self._risk_mgr.handle_tp1_hit(symbol, self._api, tick_size)
                     log.info("[%s] TP1 hit — sold %.6f (33%%) | PnL=+%.4f USDT", symbol, sell_qty, pnl)
                     tg.tp_hit(symbol, 1, pnl, price)
 
                 elif reason == "TP2":
+                    # Cancel OCO first, handle_tp2_hit places new OCO (TP3/trailing SL)
+                    self._risk_mgr.cancel_oco_for_position(symbol, self._api)
                     sell_qty = current_pos.partial_qty(2)
                     self._api.place_market_sell(symbol, sell_qty)
                     pnl = (price - current_pos.effective_entry) * sell_qty
                     self._risk_mgr.record_closed_pnl(pnl)
-                    self._risk_mgr.handle_tp2_hit(symbol)
+                    self._risk_mgr.handle_tp2_hit(symbol, self._api, tick_size)
                     log.info("[%s] TP2 hit — sold %.6f (33%%) | PnL=+%.4f USDT | trailing active", symbol, sell_qty, pnl)
                     tg.tp_hit(symbol, 2, pnl, price)
 
                 else:
+                    # Full close (SL, TP3, TAKE_PROFIT) — cancel OCO then market sell
+                    self._risk_mgr.cancel_oco_for_position(symbol, self._api)
                     remaining = current_pos.remaining_qty() or current_pos.quantity
                     self._api.place_market_sell(symbol, remaining)
                     pnl = (price - current_pos.effective_entry) * remaining
