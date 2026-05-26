@@ -252,6 +252,47 @@ def market_filter(reason: str, btc_dom: Optional[float] = None) -> bool:
     return _send(text)
 
 
+def smart_exit(
+    symbol:   str,
+    reason:   str,
+    action:   str,
+    pnl_usdt: float,
+    pnl_pct:  float,
+) -> bool:
+    """
+    ⚠️ SMART EXIT: SYMBOL  (rule-triggered or Claude-triggered close / partial)
+    """
+    sign = "+" if pnl_usdt >= 0 else ""
+    text = (
+        f"⚠️ SMART EXIT: {symbol}\n"
+        f"Reason: {reason}\n"
+        f"Action: {action}\n"
+        f"P&L: {sign}${abs(pnl_usdt):.2f} ({sign}{pnl_pct:.2f}%)"
+    )
+    return _send(text)
+
+
+def position_update(
+    symbol:   str,
+    decision: str,
+    reason:   str,
+    pnl_usdt: float,
+    pnl_pct:  float,
+) -> bool:
+    """
+    📊 POSITION UPDATE: SYMBOL  (Claude decision: HOLD / MOVE_SL)
+    """
+    emoji = {"CLOSE": "🔴", "PARTIAL_CLOSE": "⚠️", "MOVE_SL": "🛡️"}.get(decision, "📊")
+    sign  = "+" if pnl_usdt >= 0 else ""
+    text = (
+        f"{emoji} POSITION UPDATE: {symbol}\n"
+        f"Claude decision: {decision}\n"
+        f"Reason: {reason}\n"
+        f"Current P&L: {sign}${abs(pnl_usdt):.2f} ({sign}{pnl_pct:.2f}%)"
+    )
+    return _send(text)
+
+
 def news_block(event: str, reason: str, block_min: int = 30) -> bool:
     """
     ⚠️ NEWS FILTER ACTIVE  (sent when a high-impact news event blocks entries)

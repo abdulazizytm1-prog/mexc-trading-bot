@@ -73,8 +73,9 @@ if not _decision_log.handlers:
     _decision_log.addHandler(_dfh)
     _decision_log.propagate = False
 
-_JOURNAL_PATH   = Path(__file__).parent / "trade-journal.json"
+_JOURNAL_PATH          = Path(__file__).parent / "trade-journal.json"
 _LOOP_INTERVAL         = 300   # 5 minutes between scans
+_SMART_EXIT_INTERVAL   = 900   # 15 minutes between smart exit checks
 _CLAUDE_MODEL          = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 _MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claude per cycle
 
@@ -82,6 +83,23 @@ _MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claud
 # ------------------------------------------------------------------ #
 #  Claude system prompt                                                #
 # ------------------------------------------------------------------ #
+
+_EXIT_SYSTEM_PROMPT = """
+You are a professional ICT/SMC trader managing an open long position.
+Decide whether to hold, close, or adjust it.
+
+HOLD         = structure intact, momentum valid, no reason to exit
+CLOSE        = structure broken, BTC bearish, position invalidated
+MOVE_SL      = raise stop loss to protect profit (include new_sl price)
+PARTIAL_CLOSE = close 50% to lock some profit, hold the rest
+
+Respond ONLY in this exact JSON format:
+{
+  "decision": "HOLD" or "CLOSE" or "MOVE_SL" or "PARTIAL_CLOSE",
+  "reason": "brief explanation (1-2 sentences)",
+  "new_sl": null or float price (only when decision is MOVE_SL)
+}
+""".strip()
 
 _SYSTEM_PROMPT = """
 You are a professional ICT/SMC institutional trader.
@@ -182,6 +200,9 @@ class ClaudeTrader:
         self._scan_stats:          Dict[str, int] = {}
         self._last_scan_summary:   str             = ""
         self._last_scan_top_blocker: str           = ""
+
+        # Smart exit timer — checked every 15 min regardless of entry gate state
+        self._smart_exit_timer: float = 0.0
 
         # Telegram command handler — starts after MEXC connection is confirmed
         self._cmd_handler = tg.TelegramCommandHandler(self)
@@ -385,6 +406,417 @@ class ClaudeTrader:
                     "min_notional": 5.0, "tick_size": 0.0,
                 }
         return self._sym_info_cache[symbol]
+
+    # ---------------------------------------------------------------- #
+    #  Smart exit — helpers                                            #
+    # ---------------------------------------------------------------- #
+
+    @staticmethod
+    def _calc_rsi(closes: List[float], period: int = 14) -> List[float]:
+        """Wilder's RSI. Returns values for indices [period..len(closes)-1]."""
+        if len(closes) < period + 2:
+            return []
+        gains  = [max(closes[i] - closes[i - 1], 0.0) for i in range(1, len(closes))]
+        losses = [max(closes[i - 1] - closes[i], 0.0) for i in range(1, len(closes))]
+        avg_g  = sum(gains[:period])  / period
+        avg_l  = sum(losses[:period]) / period
+        result: List[float] = []
+        for i in range(period, len(gains)):
+            avg_g = (avg_g * (period - 1) + gains[i])  / period
+            avg_l = (avg_l * (period - 1) + losses[i]) / period
+            result.append(100.0 if avg_l == 0.0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l))
+        return result
+
+    def _btc_market_check(self) -> Dict[str, Any]:
+        """
+        Fetch BTCUSDT 1H klines and return:
+          bias, pct_change_1h, volume_ratio (last candle vs 20-bar avg).
+        Returns safe defaults on any error.
+        """
+        default: Dict[str, Any] = {
+            "bias": "UNKNOWN", "pct_change_1h": 0.0, "volume_ratio": 1.0,
+        }
+        try:
+            klines = self._api.get_klines("BTCUSDT", "60m", 50)
+            if not klines or len(klines) < 5:
+                return default
+            df      = candles_to_df(klines)
+            bias    = detect_market_structure(df).get("bias", "UNKNOWN")
+            closes  = df["close"].astype(float).values
+            pct_1h  = (closes[-1] - closes[-2]) / closes[-2] if closes[-2] > 0 else 0.0
+            vols    = df["volume"].astype(float).values
+            avg_vol = float(vols[-21:-1].mean()) if len(vols) > 20 else float(vols.mean())
+            vol_ratio = float(vols[-1]) / avg_vol if avg_vol > 0 else 1.0
+            return {"bias": bias, "pct_change_1h": pct_1h, "volume_ratio": vol_ratio}
+        except Exception as exc:
+            log.debug("[SmartExit] BTC check error: %s", exc)
+            return default
+
+    @staticmethod
+    def _rsi_divergence(df: Any, lookback: int = 20) -> bool:
+        """
+        Returns True if bearish divergence: last N candles have price sloping UP
+        while RSI(14) slopes DOWN by more than 3 points.
+        """
+        try:
+            closes = list(df["close"].astype(float).values[-lookback:])
+            if len(closes) < 18:
+                return False
+            rsi = ClaudeTrader._calc_rsi(closes, 14)
+            if len(rsi) < 5:
+                return False
+            price_slope = closes[-1]  - closes[-6]
+            rsi_slope   = rsi[-1]     - rsi[-6]
+            return price_slope > 0 and rsi_slope < -3.0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _volume_dried_up(df: Any, threshold: float = 0.5) -> bool:
+        """Returns True if last candle volume < threshold × 20-bar average."""
+        try:
+            vols = df["volume"].astype(float).values
+            if len(vols) < 21:
+                return False
+            avg = float(vols[-21:-1].mean())
+            return avg > 0 and float(vols[-1]) < avg * threshold
+        except Exception:
+            return False
+
+    @staticmethod
+    def _hours_open(position: "Position") -> float:
+        if not position.open_time:
+            return 0.0
+        try:
+            opened = datetime.fromisoformat(position.open_time)
+            if opened.tzinfo is None:
+                opened = opened.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - opened).total_seconds() / 3600.0
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _floating_pnl(position: "Position", price: float):
+        """Returns (pnl_usdt, pnl_pct, r_multiple)."""
+        entry    = position.effective_entry
+        qty      = position.remaining_qty()
+        risk     = entry - position.stop_loss
+        pnl_usdt = (price - entry) * qty
+        pnl_pct  = (price - entry) / entry * 100 if entry > 0 else 0.0
+        r_mult   = (price - entry) / risk if risk > 0 else 0.0
+        return pnl_usdt, pnl_pct, r_mult
+
+    def _build_exit_prompt(
+        self,
+        symbol:    str,
+        position:  "Position",
+        price:     float,
+        btc:       Dict[str, Any],
+        hours:     float,
+        vol_ratio: float,
+        fg_val:    int,
+    ) -> str:
+        entry = position.effective_entry
+        pnl_usdt, pnl_pct, r_mult = self._floating_pnl(position, price)
+        sign = "+" if pnl_usdt >= 0 else ""
+        return (
+            f"Evaluate this open long position — decide HOLD / CLOSE / MOVE_SL / PARTIAL_CLOSE.\n\n"
+            f"POSITION:\n"
+            f"  Symbol     : {symbol}\n"
+            f"  Entry      : ${entry:.6f}\n"
+            f"  Current    : ${price:.6f}\n"
+            f"  Stop Loss  : ${position.stop_loss:.6f}\n"
+            f"  TP1/TP2/TP3: ${position.tp1:.4f} / ${position.tp2:.4f} / ${position.tp3:.4f}\n"
+            f"  P&L        : {sign}${abs(pnl_usdt):.4f} USDT ({sign}{pnl_pct:.2f}%)\n"
+            f"  R Multiple : {r_mult:.2f}R\n"
+            f"  Zone       : {position.zone_type}\n"
+            f"  Open time  : {hours:.1f} hours\n"
+            f"  TP1 hit: {position.tp1_hit} | TP2 hit: {position.tp2_hit}\n"
+            f"  Break-even: {position.break_even_active} | Trailing: {position.trailing_active}\n\n"
+            f"MARKET:\n"
+            f"  BTC 1H structure : {btc['bias']}\n"
+            f"  BTC 1H change    : {btc['pct_change_1h'] * 100:+.2f}%\n"
+            f"  Volume ratio     : {vol_ratio:.2f}x avg\n"
+            f"  Fear & Greed     : {fg_val}\n\n"
+            f"Apply strict ICT/SMC rules. Capital protection first."
+        )
+
+    def _analyze_exit_with_claude(self, symbol: str, prompt: str) -> Dict[str, Any]:
+        """Call Claude for exit decision. Returns dict with decision/reason/new_sl."""
+        default: Dict[str, Any] = {"decision": "HOLD", "reason": "Claude unavailable", "new_sl": None}
+        for attempt in range(2):
+            try:
+                msg = self._client.messages.create(
+                    model    = _CLAUDE_MODEL,
+                    max_tokens = 256,
+                    system   = _EXIT_SYSTEM_PROMPT,
+                    messages = [{"role": "user", "content": prompt}],
+                )
+                raw = msg.content[0].text.strip()
+                if "```" in raw:
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                r = json.loads(raw.strip())
+                return {
+                    "decision": r.get("decision", "HOLD"),
+                    "reason":   r.get("reason", ""),
+                    "new_sl":   r.get("new_sl"),
+                }
+            except anthropic.APIError as exc:
+                log.warning("[SmartExit] Claude API error for %s (%d/2): %s", symbol, attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(5)
+            except json.JSONDecodeError:
+                return default
+            except Exception as exc:
+                log.warning("[SmartExit] Unexpected Claude error for %s (%d/2): %s", symbol, attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(5)
+        return default
+
+    # ---------------------------------------------------------------- #
+    #  Smart exit — main logic                                          #
+    # ---------------------------------------------------------------- #
+
+    def _execute_smart_close(
+        self,
+        symbol:    str,
+        position:  "Position",
+        price:     float,
+        reason:    str,
+        pnl_usdt:  float,
+        pnl_pct:   float,
+        tick_size: float = 0.0,
+    ) -> None:
+        """Cancel OCO → market sell remaining → record PnL → notify."""
+        try:
+            self._risk_mgr.cancel_oco_for_position(symbol, self._api)
+            remaining = position.remaining_qty() or position.quantity
+            self._api.place_market_sell(symbol, remaining)
+            self._risk_mgr.record_closed_pnl(pnl_usdt)
+            self._risk_mgr.remove_position(symbol)
+            log.info(
+                "[SmartExit] %s CLOSED — %s | PnL=%.4f USDT (%.2f%%)",
+                symbol, reason, pnl_usdt, pnl_pct,
+            )
+            tg.smart_exit(symbol, reason, "Closed position", pnl_usdt, pnl_pct)
+            self._reset_daily_counters_if_new_day()
+            if pnl_usdt >= 0:
+                self._daily_wins   += 1
+            else:
+                self._daily_losses += 1
+        except MEXCAPIError as exc:
+            log.error("[SmartExit] API error closing %s: %s", symbol, exc)
+        except Exception as exc:
+            log.exception("[SmartExit] Unexpected error closing %s: %s", symbol, exc)
+
+    def _execute_partial_smart_close(
+        self,
+        symbol:    str,
+        position:  "Position",
+        price:     float,
+        reason:    str,
+        pnl_usdt:  float,
+        pnl_pct:   float,
+        tick_size: float = 0.0,
+    ) -> None:
+        """Sell 50% of remaining qty, refresh OCO for the rest."""
+        try:
+            remaining = position.remaining_qty() or position.quantity
+            half      = round(remaining * 0.5, 8)
+            if half <= 0:
+                return
+            self._risk_mgr.cancel_oco_for_position(symbol, self._api)
+            self._api.place_market_sell(symbol, half)
+            partial_pnl = (price - position.effective_entry) * half
+            self._risk_mgr.record_closed_pnl(partial_pnl)
+            position.quantity = max(round(position.quantity - half, 8), 0.0)
+            self._risk_mgr.save_positions()
+            next_tp = position.tp2 if position.tp1_hit else position.tp1
+            if next_tp > 0 and position.quantity > 0:
+                self._risk_mgr.place_oco_for_position(
+                    symbol, self._api, next_tp, position.stop_loss, tick_size
+                )
+            log.info(
+                "[SmartExit] %s PARTIAL CLOSE — sold %.6f (50%%) | partial_pnl=%.4f",
+                symbol, half, partial_pnl,
+            )
+            tg.smart_exit(symbol, reason, f"Closed 50%, holding {remaining - half:.6f}", partial_pnl, pnl_pct * 0.5)
+        except MEXCAPIError as exc:
+            log.error("[SmartExit] API error partial-closing %s: %s", symbol, exc)
+        except Exception as exc:
+            log.exception("[SmartExit] Unexpected error partial-closing %s: %s", symbol, exc)
+
+    def _smart_exit_one(
+        self,
+        symbol:   str,
+        position: "Position",
+        btc:      Dict[str, Any],
+        fg_val:   int,
+    ) -> None:
+        """Run all smart-exit logic for a single open position."""
+        ws = self._ws_feed
+        try:
+            price = (ws.get_price(symbol) if ws else None) or self._api.get_ticker_price(symbol)
+        except Exception:
+            return
+
+        entry     = position.effective_entry
+        hours     = self._hours_open(position)
+        pnl_usdt, pnl_pct, r_mult = self._floating_pnl(position, price)
+        risk      = entry - position.stop_loss
+        sym_info  = self._ensure_sym_info(symbol)
+        tick_size = sym_info.get("tick_size", 0.0)
+
+        # ── 1. Market deterioration — immediate closes ────────────────
+        close_reason: Optional[str] = None
+        if btc["bias"] == "BEARISH":
+            close_reason = "BTC structure flipped BEARISH"
+        elif btc["pct_change_1h"] < -0.02:
+            close_reason = f"BTC dropped {btc['pct_change_1h'] * 100:.1f}% in 1 hour"
+        elif fg_val < 25:
+            close_reason = f"Extreme Fear (F&G={fg_val})"
+
+        if close_reason:
+            log.info("[SmartExit] %s — market deterioration: %s", symbol, close_reason)
+            self._execute_smart_close(symbol, position, price, close_reason, pnl_usdt, pnl_pct, tick_size)
+            return
+
+        # ── 2. Per-symbol technical checks ───────────────────────────
+        df: Any            = None
+        sym_bias: str      = "UNKNOWN"
+        vol_ratio: float   = 1.0
+        tech_reason: Optional[str] = None
+        claude_trigger: Optional[str] = None
+
+        try:
+            klines = self._api.get_klines(symbol, "60m", 50)
+            if klines:
+                df       = candles_to_df(klines)
+                sym_bias = detect_market_structure(df).get("bias", "UNKNOWN")
+                vols     = df["volume"].astype(float).values
+                avg_v    = float(vols[-21:-1].mean()) if len(vols) > 20 else float(vols.mean())
+                vol_ratio = float(vols[-1]) / avg_v if avg_v > 0 else 1.0
+
+                # Immediate: structure flipped BEARISH (CHoCH proxy)
+                if sym_bias == "BEARISH":
+                    tech_reason = "CHoCH — 1H structure flipped BEARISH"
+
+                # Immediate: price broke below entry zone
+                elif float(df.iloc[-1]["close"]) < entry * 0.997:
+                    tech_reason = "Price broke below OB/FVG entry zone"
+
+                # Claude evaluation: RSI divergence
+                elif self._rsi_divergence(df):
+                    claude_trigger = "Bearish RSI divergence on 1H"
+
+                # Claude evaluation: volume dry + non-bullish structure
+                elif self._volume_dried_up(df) and sym_bias != "BULLISH":
+                    claude_trigger = f"Volume dry-up ({vol_ratio:.2f}x avg) + structure {sym_bias}"
+
+        except Exception as exc:
+            log.debug("[SmartExit] Technical check error for %s: %s", symbol, exc)
+
+        if tech_reason:
+            log.info("[SmartExit] %s — technical: %s", symbol, tech_reason)
+            self._execute_smart_close(symbol, position, price, tech_reason, pnl_usdt, pnl_pct, tick_size)
+            return
+
+        # ── 3. Profit protection (SL adjustments, no close) ──────────
+        if risk > 0 and not position.break_even_active and r_mult >= 1.5:
+            be_sl = round(entry * 1.001, 8)
+            if be_sl > position.stop_loss:
+                position.stop_loss        = be_sl
+                position.break_even_active = True
+                self._risk_mgr.save_positions()
+                next_tp = position.tp2 if position.tp1_hit else position.tp1
+                if next_tp > 0:
+                    self._risk_mgr.cancel_oco_for_position(symbol, self._api)
+                    self._risk_mgr.place_oco_for_position(symbol, self._api, next_tp, be_sl, tick_size)
+                log.info("[SmartExit] %s — break-even SL set at %.6f (%.2fR)", symbol, be_sl, r_mult)
+                tg.position_update(symbol, "MOVE_SL", f"Break-even at {r_mult:.2f}R profit", pnl_usdt, pnl_pct)
+                return
+
+        if risk > 0 and position.break_even_active and not position.trailing_active and r_mult >= 2.0:
+            position.trailing_active = True
+            self._risk_mgr.save_positions()
+            log.info("[SmartExit] %s — aggressive trailing activated (%.2fR)", symbol, r_mult)
+            tg.position_update(symbol, "MOVE_SL", f"Aggressive trailing activated at {r_mult:.2f}R", pnl_usdt, pnl_pct)
+            return
+
+        # ── 4. Time-based / ambiguous → Claude ────────────────────────
+        if hours > 8:
+            claude_trigger = claude_trigger or f"Position open {hours:.1f}h — evaluate continuation"
+
+        if btc["volume_ratio"] < 0.5 and not claude_trigger:
+            claude_trigger = f"BTC volume very low ({btc['volume_ratio']:.2f}x avg)"
+
+        if claude_trigger:
+            prompt   = self._build_exit_prompt(symbol, position, price, btc, hours, vol_ratio, fg_val)
+            result   = self._analyze_exit_with_claude(symbol, prompt)
+            decision = result["decision"]
+            reason   = result["reason"]
+            log.info("[SmartExit] %s — Claude: %s | %s", symbol, decision, reason)
+
+            if decision == "CLOSE":
+                self._execute_smart_close(
+                    symbol, position, price, f"Claude: {reason}", pnl_usdt, pnl_pct, tick_size
+                )
+                return
+
+            elif decision == "PARTIAL_CLOSE":
+                self._execute_partial_smart_close(
+                    symbol, position, price, f"Claude: {reason}", pnl_usdt, pnl_pct, tick_size
+                )
+                return
+
+            elif decision == "MOVE_SL":
+                raw_sl = result.get("new_sl")
+                if raw_sl:
+                    try:
+                        new_sl = round(float(raw_sl), 8)
+                        if new_sl > position.stop_loss:
+                            position.stop_loss = new_sl
+                            self._risk_mgr.save_positions()
+                            next_tp = position.tp2 if position.tp1_hit else position.tp1
+                            if next_tp > 0:
+                                self._risk_mgr.cancel_oco_for_position(symbol, self._api)
+                                self._risk_mgr.place_oco_for_position(symbol, self._api, next_tp, new_sl, tick_size)
+                            log.info("[SmartExit] %s — SL raised to %.6f (Claude)", symbol, new_sl)
+                    except (ValueError, TypeError):
+                        pass
+                tg.position_update(symbol, "MOVE_SL", reason, pnl_usdt, pnl_pct)
+
+            else:  # HOLD
+                tg.position_update(symbol, "HOLD", reason, pnl_usdt, pnl_pct)
+
+        else:
+            log.info(
+                "[SmartExit] %s — HOLD | %.2fR | BTC:%s | F&G:%d | hrs:%.1f",
+                symbol, r_mult, btc["bias"], fg_val, hours,
+            )
+
+    def _check_smart_exits(self) -> None:
+        """
+        Run intelligent exit analysis for every open position.
+        Called every _SMART_EXIT_INTERVAL seconds from the main loop.
+        Fetches shared BTC + F&G context once, then analyses each position.
+        """
+        positions = self._risk_mgr.all_positions()
+        if not positions:
+            return
+        log.info("[SmartExit] Running check for %d position(s).", len(positions))
+        btc    = self._btc_market_check()
+        try:
+            fg_val = int(news_filter.get_crypto_sentiment().get("fear_greed", 50))
+        except Exception:
+            fg_val = 50
+        for symbol, position in list(positions.items()):
+            try:
+                self._smart_exit_one(symbol, position, btc, fg_val)
+            except Exception as exc:
+                log.exception("[SmartExit] Unhandled error for %s: %s", symbol, exc)
 
     # ---------------------------------------------------------------- #
     #  Claude integration                                               #
@@ -888,8 +1320,15 @@ Respond ONLY in the required JSON format."""
                 self._reset_daily_counters_if_new_day()
                 self._maybe_send_daily_summary()
 
-                # ── Always: check exits ──────────────────────────────────
+                # ── Always: check hard SL/TP exits ──────────────────────
                 self._handle_exits()
+
+                # ── Smart exit check (every 15 min) ──────────────────────
+                now_ts = time.time()
+                if now_ts - self._smart_exit_timer >= _SMART_EXIT_INTERVAL:
+                    self._smart_exit_timer = now_ts
+                    if self._risk_mgr.open_position_count() > 0:
+                        self._check_smart_exits()
 
                 # ── Gate 1: Weekend check (only hard block) ──────────────
                 kill_zone = detect_kill_zone()
