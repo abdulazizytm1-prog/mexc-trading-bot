@@ -37,7 +37,7 @@ import news_filter
 import telegram_alerts as tg
 from coin_selector import CoinSelector
 from filters import check_atr_filter, check_correlation_guard, check_global_market, check_order_book
-from market_context import MarketContextPoller
+from market_context import MarketContextPoller, detect_market_regime
 from mexc_api import MEXCAPIError, MEXCSpotAPI
 from risk_manager import Position, RiskManager
 from strategy import (
@@ -210,6 +210,9 @@ class ClaudeTrader:
         # Smart exit timer — checked every 15 min regardless of entry gate state
         self._smart_exit_timer: float = 0.0
 
+        # Current market regime — updated each scan cycle
+        self._current_regime: str = "RANGING"
+
         # Telegram command handler — starts after MEXC connection is confirmed
         self._cmd_handler = tg.TelegramCommandHandler(self)
 
@@ -236,11 +239,25 @@ class ClaudeTrader:
             pass
         return False
 
+    def _btc_1h_atr_pct(self) -> float:
+        """Proxy for market-wide volatility: returns BTC 1H ATR as % of price."""
+        try:
+            klines = self._api.get_klines("BTCUSDT", "60m", 16)
+            if klines and len(klines) >= 2:
+                price = float(klines[-1][4])
+                if price > 0:
+                    return check_atr_filter(klines, price).get("atr_pct", 0.0)
+        except Exception:
+            pass
+        return 0.0
+
     def _evaluate_coin_signal(
         self,
         symbol: str,
         trade_type: str = "",
         allow_extra_correlated: bool = False,
+        min_score: int = 5,
+        max_atr_pct: float = 4.0,
     ) -> Optional[TradeSignal]:
         """
         Run all pre-Claude filters for one symbol and return a qualifying
@@ -274,7 +291,7 @@ class ClaudeTrader:
             current_price = ws_price or float(klines[-1][4])
 
             # ── ATR filter ────────────────────────────────────────────────
-            atr_check = check_atr_filter(klines, current_price)
+            atr_check = check_atr_filter(klines, current_price, max_atr_pct)
             if not atr_check["tradeable"]:
                 log.info(
                     "[Diag] %s | ATR: %.2f%% ✗ (%s)",
@@ -362,10 +379,10 @@ class ClaudeTrader:
                 st["no_signal"] = st.get("no_signal", 0) + 1
                 return None
 
-            if signal.score < 5:
+            if signal.score < min_score:
                 log.info(
-                    "[Diag] %s | Signal: score=%d/10 ✗ (below 5)",
-                    symbol, signal.score,
+                    "[Diag] %s | Signal: score=%d/10 ✗ (below %d)",
+                    symbol, signal.score, min_score,
                 )
                 if not signal.liquidity_sweep:
                     log.info("[Diag] %s | Signal: No liquidity sweep ✗", symbol)
@@ -1047,7 +1064,7 @@ Respond ONLY in the required JSON format."""
     #  Trade execution                                                  #
     # ---------------------------------------------------------------- #
 
-    def _execute_entry(self, signal: TradeSignal) -> Optional[float]:
+    def _execute_entry(self, signal: TradeSignal, sl_atr_mult: float = 1.5) -> Optional[float]:
         """
         Size and execute a market buy. Returns cost in USDT or None on failure.
         Always fetches a fresh balance immediately before sizing so the 1% risk
@@ -1092,10 +1109,17 @@ Respond ONLY in the required JSON format."""
                 else signal.entry_price
             )
 
-            # Enforce 3% hard SL cap from fill price
-            max_sl_dist = fill_price * 0.03
-            safe_sl     = max(signal.stop_loss, fill_price - max_sl_dist, 0.0)
-            risk        = fill_price - safe_sl
+            # SL calculation: VOLATILE regime uses ATR * sl_atr_mult (wider stop);
+            # all other regimes cap at 3% from fill.
+            entry_atr = getattr(signal, "atr", 0.0)
+            if sl_atr_mult != 1.5 and entry_atr > 0:
+                atr_sl   = fill_price - entry_atr * sl_atr_mult
+                hard_cap = fill_price * 0.95   # 5% absolute floor for volatile
+                safe_sl  = max(atr_sl, hard_cap, 0.0)
+            else:
+                max_sl_dist = fill_price * 0.03
+                safe_sl     = max(signal.stop_loss, fill_price - max_sl_dist, 0.0)
+            risk = fill_price - safe_sl
 
             if risk > 0 and abs(fill_price - signal.entry_price) / signal.entry_price > 0.001:
                 tp1 = fill_price + risk * 1.0
@@ -1373,15 +1397,34 @@ Respond ONLY in the required JSON format."""
                 ctx = self._market_ctx.get_context()
                 market_ok = check_global_market(ctx, trade_type)
                 if not market_ok["tradeable"]:
-                    log.info("[Diag] Market: %s ✗", market_ok["reason"])
-                    log.info(
-                        "[ClaudeTrader][MarketFilter][%s] %s",
-                        trade_type, market_ok["reason"],
-                    )
-                    btc_dom = getattr(ctx, "btc_dominance", None) if ctx else None
-                    tg.market_filter(market_ok["reason"], btc_dom)
-                    time.sleep(_LOOP_INTERVAL)
-                    continue
+                    # BULL regime can override a BTC-dominance rejection;
+                    # use the cached ctx.regime (updated every 30 min) so we
+                    # don't need to fetch sentiment here.
+                    _cached_regime  = getattr(ctx, "regime",        "RANGING") if ctx else "RANGING"
+                    _btc_dom_now    = getattr(ctx, "btc_dominance",  0.0)      if ctx else 0.0
+                    if (
+                        _cached_regime == "BULL"
+                        and "dominance" in market_ok["reason"].lower()
+                        and _btc_dom_now <= 75.0
+                    ):
+                        log.info(
+                            "[Regime] BULL override at Gate 2: BTC dom %.1f%% ≤ 75%% — allowed",
+                            _btc_dom_now,
+                        )
+                        market_ok = {
+                            "tradeable": True,
+                            "reason": f"BULL regime BTC dom override ({_btc_dom_now:.1f}% ≤ 75%)",
+                        }
+                    else:
+                        log.info("[Diag] Market: %s ✗", market_ok["reason"])
+                        log.info(
+                            "[ClaudeTrader][MarketFilter][%s] %s",
+                            trade_type, market_ok["reason"],
+                        )
+                        btc_dom = getattr(ctx, "btc_dominance", None) if ctx else None
+                        tg.market_filter(market_ok["reason"], btc_dom)
+                        time.sleep(_LOOP_INTERVAL)
+                        continue
 
                 _diag_dom = getattr(ctx, "btc_dominance", 0.0) if ctx else 0.0
                 _diag_fg  = getattr(ctx, "fear_greed",    "N/A") if ctx else "N/A"
@@ -1433,6 +1476,51 @@ Respond ONLY in the required JSON format."""
                     "; ".join(crypto_sentiment["top_news"][:2]) or "none",
                 )
 
+                # ── Regime detection (once per cycle) ────────────────────
+                btc_7d_chg  = getattr(ctx, "btc_7d_change", 0.0) if ctx else 0.0
+                btc_dom_now = getattr(ctx, "btc_dominance",  0.0) if ctx else 0.0
+                fg_now      = float(crypto_sentiment.get("fear_greed", 50))
+                avg_atr_now = self._btc_1h_atr_pct()
+                regime = detect_market_regime(btc_7d_chg, btc_dom_now, fg_now, avg_atr_now)
+                if regime != self._current_regime:
+                    log.warning("[Regime] Changed: %s → %s", self._current_regime, regime)
+                self._current_regime = regime
+                log.info(
+                    "[Regime] %s | BTC %+.1f%% 7d | dom=%.1f%% | F&G=%.0f | ATR=%.2f%%",
+                    regime, btc_7d_chg, btc_dom_now, fg_now, avg_atr_now,
+                )
+
+                # Per-regime threshold overrides
+                if regime == "BULL":
+                    _eff_min_score = 4
+                    _eff_max_daily = 5
+                    _eff_atr_max   = 4.0
+                    _eff_sl_mult   = 1.5
+                elif regime == "BEAR":
+                    _eff_min_score = 7
+                    _eff_max_daily = 2
+                    _eff_atr_max   = 4.0
+                    _eff_sl_mult   = 1.5
+                elif regime == "VOLATILE":
+                    _eff_min_score = 5
+                    _eff_max_daily = config.MAX_DAILY_TRADES
+                    _eff_atr_max   = 6.0
+                    _eff_sl_mult   = 2.0
+                else:  # RANGING
+                    _eff_min_score = 5
+                    _eff_max_daily = config.MAX_DAILY_TRADES
+                    _eff_atr_max   = 4.0
+                    _eff_sl_mult   = 1.5
+
+                # BEAR / BULL regime: enforce tighter daily trade cap
+                if self._risk_mgr._daily_trades >= _eff_max_daily:
+                    log.info(
+                        "[Regime] Daily limit %d/%d reached for %s regime — skipping scan.",
+                        self._risk_mgr._daily_trades, _eff_max_daily, regime,
+                    )
+                    time.sleep(_LOOP_INTERVAL)
+                    continue
+
                 # ── BTC 4H bull market check (once per cycle) ────────────
                 # Allows 2 correlated pairs instead of 1 when BTC 4H candle
                 # is up more than 1% — momentum is strongly aligned.
@@ -1449,13 +1537,20 @@ Respond ONLY in the required JSON format."""
                 qualifying: List[TradeSignal] = []
                 checked = 0
 
-                for symbol in active_pairs:
+                # BEAR regime: restrict universe to top 15 highest-quality coins
+                scan_pairs = active_pairs[:15] if regime == "BEAR" else active_pairs
+
+                for symbol in scan_pairs:
                     coin_score = self._coin_sel.get_quality_score(symbol)
                     if coin_score < config.MIN_COIN_SCORE:
                         continue
                     checked += 1
                     sig = self._evaluate_coin_signal(
-                        symbol, trade_type=trade_type, allow_extra_correlated=bull_4h
+                        symbol,
+                        trade_type=trade_type,
+                        allow_extra_correlated=bull_4h,
+                        min_score=_eff_min_score,
+                        max_atr_pct=_eff_atr_max,
                     )
                     if sig is not None:
                         qualifying.append(sig)
@@ -1565,7 +1660,7 @@ Respond ONLY in the required JSON format."""
                             "[%s] Claude APPROVED (confidence=%d, risk=%s) — executing.",
                             symbol, confidence, response.get("risk_level", ""),
                         )
-                        result = self._execute_entry(signal)
+                        result = self._execute_entry(signal, sl_atr_mult=_eff_sl_mult)
                         if result:
                             cost, fill_price, quantity, order_id = result
                             self._balance -= cost

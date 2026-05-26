@@ -541,7 +541,8 @@ class TelegramCommandHandler:
     def _cmd_status(self) -> str:
         status = "✅ RUNNING" if self.trading_enabled else "⏸ PAUSED"
 
-        btc_line = "📈 BTC Dominance: N/A"
+        btc_line    = "📈 BTC Dominance: N/A"
+        regime_line = ""
         ctx_obj = getattr(self._trader, "_market_ctx", None)
         if ctx_obj:
             ctx = ctx_obj.get_context()
@@ -549,6 +550,10 @@ class TelegramCommandHandler:
                 dom = ctx.btc_dominance
                 tag = " (restricted)" if dom > 55.0 else " (ok)"
                 btc_line = f"📈 BTC Dominance: {dom:.1f}%{tag}"
+                regime_val = getattr(ctx, "regime", None) or getattr(self._trader, "_current_regime", None)
+                if regime_val:
+                    _emoji = {"BULL": "🟢", "BEAR": "🔴", "VOLATILE": "🟡", "RANGING": "🔵"}.get(regime_val, "⚪")
+                    regime_line = f"\n📊 Regime: {regime_val} {_emoji}"
 
         # Import here to avoid module-level circular dep
         from strategy import detect_kill_zone as _dkz
@@ -562,9 +567,10 @@ class TelegramCommandHandler:
 
         return (
             f"🤖 Bot Status: {status}\n"
-            f"{btc_line}\n"
+            f"{btc_line}"
+            f"{regime_line}\n"
             f"{kz_line}\n"
-            f"🔄 Next scan: ~5 min"
+            f"🔄 Next scan: ~3 min"
             f"{scan_line}"
             f"{blocker_line}"
         )

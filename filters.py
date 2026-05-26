@@ -36,10 +36,17 @@ def _calc_atr(candles: List) -> float:
 
 # ── 1. ATR volatility filter ──────────────────────────────────────────────
 
-def check_atr_filter(candles: List, current_price: float) -> Dict[str, Any]:
+def check_atr_filter(
+    candles: List,
+    current_price: float,
+    max_atr_pct: float = 4.0,
+) -> Dict[str, Any]:
     """
-    Rejects symbols that are too choppy (ATR% > 3.0) or too dead (ATR% < 0.3).
+    Rejects symbols that are too choppy (ATR% > max_atr_pct) or too dead (ATR% < 0.3).
     Ideal range: 0.5 – 2.0 %.
+
+    Args:
+        max_atr_pct : upper ATR% bound (default 4.0; pass 6.0 for VOLATILE regime)
 
     Returns:
         tradeable : bool
@@ -55,7 +62,7 @@ def check_atr_filter(candles: List, current_price: float) -> Dict[str, Any]:
 
     atr_pct = atr / current_price * 100.0
 
-    if atr_pct > 4.0:
+    if atr_pct > max_atr_pct:
         return {
             "tradeable": False,
             "atr_pct": round(atr_pct, 3),

@@ -38,6 +38,33 @@ _REFRESH_MIN: int = getattr(config, "MARKET_CONTEXT_REFRESH_HOURS", 0) * 60 or \
 _BTC_DOM_ALTCOIN_RESTRICT = 55.0   # BTC dominance above this → reduce altcoin trades
 _MARKET_DROP_NO_TRADE     = -3.0   # global 24h change below this → no new entries
 
+# Coinranking UUID for Bitcoin (used for 7-day price history)
+_BTC_UUID = "Qwsogvtv82FCd"
+
+
+def detect_market_regime(
+    btc_7d_change: float,
+    btc_dominance: float,
+    fear_greed:    float,
+    avg_atr:       float,
+) -> str:
+    """
+    Classify the current market environment into one of four regimes.
+
+    Rules (checked in priority order):
+      BEAR     : btc_7d_change < -5%  OR  fear_greed < 25
+      BULL     : btc_7d_change >  5%  AND btc_dominance < 58%
+      VOLATILE : avg_atr > 2.5%
+      RANGING  : everything else
+    """
+    if btc_7d_change < -5.0 or fear_greed < 25.0:
+        return "BEAR"
+    if btc_7d_change > 5.0 and btc_dominance < 58.0:
+        return "BULL"
+    if avg_atr > 2.5:
+        return "VOLATILE"
+    return "RANGING"
+
 
 @dataclass
 class MarketContext:
@@ -51,8 +78,24 @@ class MarketContext:
     altcoin_restricted: bool  # True when btc_dominance > 55%
     # We don't have a reliable global 24h-change from /stats; we approximate
     # using total market cap trend stored across two consecutive snapshots.
-    prev_market_cap:  float = 0.0
-    market_change_pct: float = 0.0  # positive = up, negative = down
+    prev_market_cap:   float = 0.0
+    market_change_pct: float = 0.0   # positive = up, negative = down
+    btc_7d_change:     float = 0.0   # BTC price % change over 7 days
+    regime:            str   = "RANGING"  # BULL / BEAR / VOLATILE / RANGING
+
+
+def _calc_btc_7d_change(client: CoinRankingClient) -> float:
+    """Fetch BTC 7-day price history from Coinranking and return % change. Returns 0.0 on failure."""
+    try:
+        history = client.get_coin_history(_BTC_UUID, "7d")
+        if history and len(history) >= 2:
+            first = float(history[0].get("price") or 0)
+            last  = float(history[-1].get("price") or 0)
+            if first > 0:
+                return (last - first) / first * 100.0
+    except Exception as exc:
+        log.debug("[MarketContext] BTC 7d change fetch failed: %s", exc)
+    return 0.0
 
 
 def _load_cached() -> Optional[MarketContext]:
@@ -103,10 +146,14 @@ class MarketContextPoller:
             log.warning("[MarketContext] /stats returned nothing — keeping stale data")
             return
 
-        prev_cap = 0.0
+        prev_cap      = 0.0
+        prev_btc_7d   = 0.0
+        prev_regime   = "RANGING"
         with self._lock:
             if self._context:
-                prev_cap = self._context.total_market_cap
+                prev_cap    = self._context.total_market_cap
+                prev_btc_7d = self._context.btc_7d_change
+                prev_regime = self._context.regime
 
         total_cap  = float(stats.get("totalMarketCap")  or 0)
         total_vol  = float(stats.get("total24hVolume")   or 0)
@@ -119,6 +166,15 @@ class MarketContextPoller:
         if prev_cap > 0 and total_cap > 0:
             market_chg = (total_cap - prev_cap) / prev_cap * 100.0
 
+        # BTC 7-day change (fall back to cached value on failure)
+        btc_7d = _calc_btc_7d_change(client)
+        if btc_7d == 0.0 and prev_btc_7d != 0.0:
+            btc_7d = prev_btc_7d  # keep last known value on fetch failure
+
+        # Regime detection (fear_greed/avg_atr not available here — defaulted;
+        # claude_trader.py refines with live data each scan cycle)
+        regime = detect_market_regime(btc_7d, btc_dom, 50.0, 0.0)
+
         ctx = MarketContext(
             fetched_at        = datetime.now().isoformat(timespec="seconds"),
             total_market_cap  = total_cap,
@@ -129,6 +185,8 @@ class MarketContextPoller:
             altcoin_restricted= btc_dom > _BTC_DOM_ALTCOIN_RESTRICT,
             prev_market_cap   = prev_cap,
             market_change_pct = market_chg,
+            btc_7d_change     = btc_7d,
+            regime            = regime,
         )
 
         with self._lock:
@@ -136,10 +194,16 @@ class MarketContextPoller:
 
         self._save(ctx)
 
+        if regime != prev_regime:
+            log.warning(
+                "[MarketContext] Regime changed: %s → %s | BTC 7d=%+.1f%%  dom=%.1f%%",
+                prev_regime, regime, btc_7d, btc_dom,
+            )
+
         log.info(
-            "[MarketContext] Updated — BTC dom=%.1f%%  mcap=$%.2fT  vol=$%.2fB  "
-            "altcoin_restricted=%s  market_chg=%.2f%%",
-            btc_dom,
+            "[MarketContext] Updated — regime=%s  BTC 7d=%+.1f%%  dom=%.1f%%  "
+            "mcap=$%.2fT  vol=$%.2fB  altcoin_restricted=%s  market_chg=%.2f%%",
+            regime, btc_7d, btc_dom,
             total_cap / 1e12,
             total_vol / 1e9,
             ctx.altcoin_restricted,
