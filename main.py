@@ -476,9 +476,9 @@ def run(
                     if signal is None:
                         continue
 
-                    if signal.strength < 0.8:
+                    if signal.strength < 0.65:
                         log.debug(
-                            "[%s] Signal strength %.2f < 0.80 — skipped.",
+                            "[%s] Signal strength %.2f < 0.65 — skipped.",
                             symbol, signal.strength,
                         )
                         continue

@@ -37,7 +37,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -278,6 +280,7 @@ class CoinSelector:
 
     def __init__(self, mexc_api) -> None:
         self._api            = mexc_api
+        self._lock           = threading.Lock()
         self._pairs:  List[str]         = []
         self._scores: Dict[str, float]  = {}   # mexc_symbol → 0.0–10.0
         self._coins:  List[ScoredCoin]  = []   # full metadata for dashboard
@@ -286,11 +289,12 @@ class CoinSelector:
     # ── TTL ───────────────────────────────────────────────────────────────────
 
     def _is_due(self) -> bool:
-        if not self._pairs or self._last_refresh is None:
-            return True
-        return (datetime.now() - self._last_refresh) >= timedelta(
-            hours=config.COIN_SELECTOR_REFRESH_HOURS
-        )
+        with self._lock:
+            if not self._pairs or self._last_refresh is None:
+                return True
+            return (datetime.now() - self._last_refresh) >= timedelta(
+                hours=config.COIN_SELECTOR_REFRESH_HOURS
+            )
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -407,29 +411,43 @@ class CoinSelector:
         log.info("[CoinSelector] Step 6: fetching detail for %d coins…", len(uuids))
         detail_map: Dict[str, Dict] = client.get_coin_details_batch(uuids)
 
-        # ── Step 7a: Fetch 7-day history for the same 40 candidates ─────────
-        log.info("[CoinSelector] Step 7a: fetching 7d history for %d coins…", len(uuids))
+        # ── Step 7a: Fetch 7-day history (parallel) ───────────────────────────
+        log.info("[CoinSelector] Step 7a: fetching 7d history for %d coins (parallel)…", len(uuids))
         history_map: Dict[str, List[Dict]] = {}
-        for i, uuid in enumerate(uuids):
-            if i > 0:
-                time.sleep(0.3)
-            hist = client.get_coin_history(uuid, "7d")
-            if hist:
-                history_map[uuid] = hist
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futs = {ex.submit(client.get_coin_history, uid, "7d"): uid for uid in uuids}
+            for fut in as_completed(futs):
+                uid = futs[fut]
+                try:
+                    hist = fut.result()
+                    if hist:
+                        history_map[uid] = hist
+                except Exception as exc:
+                    log.debug("[CoinSelector] History fetch failed for %s: %s", uid, exc)
         log.info("[CoinSelector] Step 7a: history fetched for %d coins", len(history_map))
 
-        # ── Step 7b: Fetch markets for DEX ratio check ────────────────────────
-        log.info("[CoinSelector] Step 7b: fetching markets for DEX ratio check…")
+        # ── Step 7b: Fetch markets for DEX ratio check (parallel) ─────────────
+        log.info("[CoinSelector] Step 7b: fetching markets for DEX ratio (parallel)…")
         dex_ratio_map: Dict[str, float] = {}  # uuid → dex_ratio 0.0–1.0
-        for i, uuid in enumerate(uuids):
-            if i > 0:
-                time.sleep(0.3)
-            markets = client.get_coin_markets(uuid, limit=50)
-            if markets:
-                dex_vol = sum(float(m.get("quoteVolume") or 0)
-                              for m in markets if (m.get("exchangeType") or "").lower() == "dex")
-                total_vol = sum(float(m.get("quoteVolume") or 0) for m in markets)
-                dex_ratio_map[uuid] = dex_vol / total_vol if total_vol > 0 else 0.0
+
+        def _fetch_dex_ratio(uid: str) -> tuple:
+            mkts = client.get_coin_markets(uid, limit=50)
+            if not mkts:
+                return uid, 0.0
+            dex_vol   = sum(float(m.get("quoteVolume") or 0)
+                            for m in mkts if (m.get("exchangeType") or "").lower() == "dex")
+            total_vol = sum(float(m.get("quoteVolume") or 0) for m in mkts)
+            return uid, (dex_vol / total_vol if total_vol > 0 else 0.0)
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futs = {ex.submit(_fetch_dex_ratio, uid): uid for uid in uuids}
+            for fut in as_completed(futs):
+                uid = futs[fut]
+                try:
+                    uid_r, ratio = fut.result()
+                    dex_ratio_map[uid_r] = ratio
+                except Exception as exc:
+                    log.debug("[CoinSelector] DEX ratio fetch failed for %s: %s", uid, exc)
         log.info("[CoinSelector] Step 7b: markets fetched for %d coins", len(dex_ratio_map))
 
         # Filter out coins where DEX volume > 30% of total (manipulation risk)
@@ -550,11 +568,14 @@ class CoinSelector:
                 if len(selected) >= min_pairs:
                     break
 
-        # ── Step 13: Commit + save ─────────────────────────────────────────────
-        self._coins  = selected
-        self._pairs  = [s.mexc_symbol for s in selected]
-        self._scores = {s.mexc_symbol: float(s.score) for s in selected}
-        self._last_refresh = datetime.now()
+        # ── Step 13: Atomically commit results ────────────────────────────────
+        _new_pairs  = [s.mexc_symbol for s in selected]
+        _new_scores = {s.mexc_symbol: float(s.score) for s in selected}
+        with self._lock:
+            self._coins        = selected
+            self._pairs        = _new_pairs
+            self._scores       = _new_scores
+            self._last_refresh = datetime.now()
 
         self._save_active_pairs(selected)
 
@@ -586,25 +607,30 @@ class CoinSelector:
                 self.refresh()
             except Exception as exc:
                 log.error("[CoinSelector] Refresh error: %s", exc)
-                if not self._pairs:
-                    log.warning("[CoinSelector] No cache — using FALLBACK_PAIRS")
-                    self._pairs = list(config.FALLBACK_PAIRS)
-        return list(self._pairs)
+                with self._lock:
+                    if not self._pairs:
+                        log.warning("[CoinSelector] No cache — using FALLBACK_PAIRS")
+                        self._pairs = list(config.FALLBACK_PAIRS)
+        with self._lock:
+            return list(self._pairs)
 
     def get_quality_score(self, mexc_symbol: str) -> float:
         """
         Returns the 0–10 Coinranking quality score for a pair.
         Returns 10.0 for unknown symbols so FALLBACK_PAIRS are never blocked.
         """
-        return self._scores.get(mexc_symbol, 10.0)
+        with self._lock:
+            return self._scores.get(mexc_symbol, 10.0)
 
     def get_all_scores(self) -> Dict[str, float]:
         """Full score map for logging or the monitoring dashboard."""
-        return dict(self._scores)
+        with self._lock:
+            return dict(self._scores)
 
     def get_coin_metadata(self, mexc_symbol: str) -> Optional[ScoredCoin]:
         """Returns the full ScoredCoin record for dashboard use."""
-        for c in self._coins:
-            if c.mexc_symbol == mexc_symbol:
-                return c
+        with self._lock:
+            for c in self._coins:
+                if c.mexc_symbol == mexc_symbol:
+                    return c
         return None

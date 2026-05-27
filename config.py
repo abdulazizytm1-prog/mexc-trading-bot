@@ -9,10 +9,7 @@ API_KEY:    str = os.getenv("MEXC_API_KEY", "")
 API_SECRET: str = (os.getenv("MEXC_SECRET") or os.getenv("MEXC_API_SECRET", ""))  # .env may use either name
 
 # Coinranking Professional API key — override via COINRANKING_API_KEY in .env
-COINRANKING_API_KEY: str = os.getenv(
-    "COINRANKING_API_KEY",
-    "coinranking7dea2dbc3f9aa62ac8ff38f1ff3a6542f97670a8ee02e776",
-)
+COINRANKING_API_KEY: str = os.getenv("COINRANKING_API_KEY", "")
 
 BASE_URL = "https://api.mexc.com"
 RECV_WINDOW = 5000

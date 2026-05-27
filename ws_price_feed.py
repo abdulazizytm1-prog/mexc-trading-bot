@@ -75,6 +75,10 @@ class WSPriceFeed:
         self._thread: Optional[threading.Thread]          = None
         self._stop    = threading.Event()
 
+        # 15-minute price snapshots for movement trigger detection
+        self._snap15:    Dict[str, float] = {}   # cr_uuid → price at snapshot
+        self._snap15_ts: float            = 0.0  # Unix timestamp of last snapshot
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_uuid_map(self, uuid_map: Dict[str, str]) -> None:
@@ -108,8 +112,43 @@ class WSPriceFeed:
         """Returns True when DEX volume exceeds `threshold` fraction of total."""
         return self.get_dex_ratio(mexc_symbol) > threshold
 
+    def get_move_pct_15m(self, mexc_symbol: str) -> float:
+        """
+        Returns the price change % for a MEXC symbol over the last 15 minutes.
+        Returns 0.0 if no snapshot is available yet.
+        """
+        uuid = self._uuid_map.get(mexc_symbol)
+        if not uuid:
+            return 0.0
+        with self._lock:
+            current  = self._prices.get(uuid, 0.0)
+            baseline = self._snap15.get(uuid, 0.0)
+        if not current or not baseline:
+            return 0.0
+        return (current - baseline) / baseline * 100.0
+
+    def get_triggered_symbols(self, threshold_pct: float = 1.5) -> List[str]:
+        """
+        Returns MEXC symbols whose price moved more than `threshold_pct` %
+        in the last 15 minutes (abs value — catches both pumps and dumps).
+        """
+        return [
+            sym for sym in list(self._uuid_map.keys())
+            if abs(self.get_move_pct_15m(sym)) >= threshold_pct
+        ]
+
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def _maybe_refresh_snapshots(self) -> None:
+        """Takes a 15-min price snapshot. Called on every rate tick — cheap."""
+        now = time.time()
+        if now - self._snap15_ts < 900:   # 15 minutes
+            return
+        with self._lock:
+            self._snap15    = dict(self._prices)
+            self._snap15_ts = now
+        log.debug("[WSFeed] 15-min price snapshot refreshed (%d entries)", len(self._snap15))
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -166,6 +205,7 @@ class WSPriceFeed:
         api_key = getattr(config, "COINRANKING_API_KEY", "")
         url = f"{_WS_BASE}/rates?x-access-token={api_key}"
         subscribe_msg = json.dumps({"currencyUuids": uuids, "throttle": _THROTTLE})
+        log.debug("[WSFeed/rates] Connecting to %s/rates", _WS_BASE)
 
         while not self._stop.is_set():
             try:
@@ -177,7 +217,8 @@ class WSPriceFeed:
                             return
                         self._handle_rate(raw)
             except Exception as exc:
-                log.warning("[WSFeed/rates] Disconnected: %s — retry in %ds", exc, _RECONNECT_S)
+                exc_str = str(exc).replace(api_key, "***") if api_key else str(exc)
+                log.warning("[WSFeed/rates] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
                 await asyncio.sleep(_RECONNECT_S)
 
     def _handle_rate(self, raw: str) -> None:
@@ -188,6 +229,7 @@ class WSPriceFeed:
             if uuid and price is not None:
                 with self._lock:
                     self._prices[uuid] = float(price)
+            self._maybe_refresh_snapshots()
         except Exception:
             pass
 
@@ -202,6 +244,7 @@ class WSPriceFeed:
         api_key = getattr(config, "COINRANKING_API_KEY", "")
         url = f"{_WS_BASE}/tickers?x-access-token={api_key}"
         subscribe_msg = json.dumps({"currencyUuids": uuids, "throttle": _THROTTLE})
+        log.debug("[WSFeed/tickers] Connecting to %s/tickers", _WS_BASE)
 
         while not self._stop.is_set():
             try:
@@ -213,7 +256,8 @@ class WSPriceFeed:
                             return
                         self._handle_ticker(raw)
             except Exception as exc:
-                log.warning("[WSFeed/tickers] Disconnected: %s — retry in %ds", exc, _RECONNECT_S)
+                exc_str = str(exc).replace(api_key, "***") if api_key else str(exc)
+                log.warning("[WSFeed/tickers] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
                 await asyncio.sleep(_RECONNECT_S)
 
     def _handle_ticker(self, raw: str) -> None:

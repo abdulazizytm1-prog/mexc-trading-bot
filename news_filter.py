@@ -190,9 +190,9 @@ def _fetch_all_rss() -> List[Dict[str, Any]]:
     Returns the stale cache (or []) on total failure — never raises.
     """
     global _rss_cache
-    now_ts = datetime.now(timezone.utc).timestamp()
 
     with _lock:
+        now_ts = datetime.now(timezone.utc).timestamp()
         if _rss_cache and now_ts - _rss_cache[0] < _RSS_CACHE_TTL:
             return _rss_cache[1]
 
@@ -210,7 +210,7 @@ def _fetch_all_rss() -> List[Dict[str, Any]]:
     combined.sort(key=lambda a: a["published_at"] or _epoch, reverse=True)
 
     with _lock:
-        _rss_cache = (now_ts, combined)
+        _rss_cache = (datetime.now(timezone.utc).timestamp(), combined)
 
     log.info(
         "[NewsFilter] RSS refreshed — CoinDesk:%d  CT:%d  total:%d",

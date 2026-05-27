@@ -74,9 +74,11 @@ if not _decision_log.handlers:
     _decision_log.propagate = False
 
 _JOURNAL_PATH          = Path(__file__).parent / "trade-journal.json"
-_LOOP_INTERVAL         = 120   # 2 min base tick (fast-scan cadence)
-_FULL_SCAN_INTERVAL    = 600   # 10 min full universe scan
+_LOOP_INTERVAL         = 60    # 1 min base tick (WS trigger monitoring cadence)
+_FULL_SCAN_INTERVAL    = 7200  # 2 hours between full universe scans
 _SMART_EXIT_INTERVAL   = 480   # 8 minutes between smart exit checks
+_COIN_TRIGGER_PCT      = 1.5   # coin price move % in 15 min → immediate scan
+_BTC_TRIGGER_PCT       = 2.0   # BTC price move % in 15 min → full scan
 _CLAUDE_MODEL          = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 _MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claude per cycle
 
@@ -123,25 +125,26 @@ Conclusion:
 
 RULES:
 1. Never repeat the same point twice
-2. Be specific about WHICH confirmation is missing
-   (not "no confirmation" but "no MSS/BOS confirmation candle")
+2. Be specific about WHICH confluence is missing (name the exact factor)
 3. Decision matrix — follow this exactly:
-   - Score ≥ 8, all confluence present: BUY — full size
-   - Score = 8, ONLY missing = confirmation candle: BUY — note "reduce size 50%"
-   - Score = 7, BTC structure BULLISH + active kill zone: BUY — note "small size"
-   - Score < 6: NO_TRADE — hard block, no exceptions
-   - BTC market structure BEARISH: NO_TRADE — hard block, no exceptions
-   All other cases: use judgment; confidence field reflects conviction
-4. Unavailable or missing data = neutral contribution, NOT a blocker
-   Absent indicators score 0 — they do not justify NO_TRADE on their own
-   Only hard blocks: BTC BEARISH structure, score < 6
+   - Score ≥ 8: BUY — execute regardless of which single factor is missing
+   - Score 7, BTC BULLISH + kill zone active: BUY small size
+   - Score < 6: NO_TRADE — ONLY hard block
+   - BTC structure explicitly BEARISH: NO_TRADE — ONLY hard block
+   Weekend / daily loss cap already reached: system blocks (not your call)
+4. Data availability rules (critical — read carefully):
+   - Any N/A or unavailable data = neutral (0 score contribution), NEVER a rejection
+   - OFF_HOURS = no score bonus only, not a block; off-hours trades are allowed
+   - BTC data unavailable = NEUTRAL, never assume BEARISH
+   - Sentiment BEARISH = reduce confidence by 0.5 only, not a NO_TRADE reason
+   - Missing confirmation candle alone does NOT block a score-8+ setup
 5. RR 1:3 = "minimum acceptable threshold"
    RR 1:4+ = "favorable buffer above minimum"
 6. Session context:
    - London Open = "high momentum probability"
    - NY Open = "institutional participation window"
    - London Close = "reduced continuation probability"
-   - Outside session = "sub-optimal liquidity conditions"
+   - Outside session = "sub-optimal liquidity conditions" (not a block)
 7. Max 150 words total
 8. No AI-generated filler phrases
 9. Hedge fund tone: cold, precise, data-driven
@@ -1567,23 +1570,32 @@ Respond ONLY in the required JSON format."""
                 if bull_4h:
                     log.info("[Diag] BTC 4H bull (+1%%) — correlation guard relaxed to 2")
 
-                # ── Phase 1: Determine scan scope (full every 10 min, fast every 2 min) ─
+                # ── Phase 1: Determine scan scope ────────────────────────
                 _now_ts       = time.time()
                 _is_full_scan = (_now_ts - self._full_scan_timer) >= _FULL_SCAN_INTERVAL
+                _active_set   = set(active_pairs)
+
+                _btc_move     = abs(self._ws_feed.get_move_pct_15m("BTCUSDT")) if self._ws_feed else 0.0
+                _ws_triggered = self._ws_feed.get_triggered_symbols(_COIN_TRIGGER_PCT) if self._ws_feed else []
 
                 if _is_full_scan:
                     self._full_scan_timer = _now_ts
-                    # BEAR regime: restrict universe to top 15 highest-quality coins
                     scan_pairs = active_pairs[:15] if regime == "BEAR" else active_pairs
-                    log.info("[Scan] Full scan — %d coins", len(scan_pairs))
-                elif self._watch_symbols:
-                    scan_pairs = [s for s in self._watch_symbols if s in set(active_pairs)]
+                    log.info("[Scan] Full 2h scan — %d coins", len(scan_pairs))
+                elif _btc_move >= _BTC_TRIGGER_PCT:
+                    scan_pairs = active_pairs[:15] if regime == "BEAR" else active_pairs
                     log.info(
-                        "[Scan] Fast scan — %d watched symbol(s): %s",
-                        len(scan_pairs), scan_pairs,
+                        "[Scan] BTC triggered (%.1f%% 15m move) — full scan %d coins",
+                        _btc_move, len(scan_pairs),
                     )
+                elif _ws_triggered:
+                    scan_pairs = [s for s in _ws_triggered if s in _active_set]
+                    log.info("[Scan] WS triggered — %d coin(s): %s", len(scan_pairs), scan_pairs)
+                elif self._watch_symbols:
+                    scan_pairs = [s for s in self._watch_symbols if s in _active_set]
+                    log.info("[Scan] Watch list — %d coin(s): %s", len(scan_pairs), scan_pairs)
                 else:
-                    log.debug("[Scan] No watch symbols — sleeping until next full scan.")
+                    log.debug("[Scan] No triggers — sleeping %.0fs.", _LOOP_INTERVAL)
                     elapsed = time.time() - loop_start
                     time.sleep(max(0.0, _LOOP_INTERVAL - elapsed))
                     continue
@@ -1698,17 +1710,35 @@ Respond ONLY in the required JSON format."""
                         )
 
                         if response is None:
-                            log.warning("[%s] Claude unavailable — skipping.", symbol)
-                            continue
+                            if signal.score >= 8:
+                                log.warning(
+                                    "[%s] Claude API unavailable — score=%.1f≥8, auto-executing (fallback).",
+                                    symbol, signal.score,
+                                )
+                                response = {
+                                    "decision":    "BUY",
+                                    "confidence":  float(signal.score),
+                                    "risk_level":  "MEDIUM",
+                                    "reasoning":   "Claude API unavailable — auto-executed based on high score",
+                                    "factors":     ["auto-fallback", f"score={signal.score:.1f}/10"],
+                                    "conclusion":  "API fallback execution",
+                                    "invalidation": "",
+                                }
+                            else:
+                                log.warning(
+                                    "[%s] Claude API unavailable, score=%.1f<8 — skipping.",
+                                    symbol, signal.score,
+                                )
+                                continue
 
                         self._log_decision(symbol, response, trade_type)
 
                         decision   = response.get("decision", "NO_TRADE")
-                        confidence = int(response.get("confidence", 0))
+                        confidence = float(response.get("confidence", 0))
 
                         if decision != "BUY" or confidence < 8:
                             log.info(
-                                "[%s] Claude: %s (confidence=%d) — %s",
+                                "[%s] Claude: %s (confidence=%.1f) — %s",
                                 symbol, decision, confidence,
                                 response.get("reasoning") or response.get("reason", ""),
                             )

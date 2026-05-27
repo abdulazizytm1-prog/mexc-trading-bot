@@ -138,7 +138,7 @@ def _atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.Series:
     hc = (df["high"] - df["close"].shift(1)).abs()
     lc = (df["low"]  - df["close"].shift(1)).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    return tr.ewm(span=period, adjust=False).mean()
+    return tr.ewm(alpha=1 / period, adjust=False).mean()
 
 
 # ------------------------------------------------------------------ #
@@ -491,9 +491,11 @@ def detect_premium_discount(df: pd.DataFrame) -> dict:
     else:
         zone = "EQUILIBRIUM"
 
-    # OTE (Optimal Trade Entry) = deep discount zone, 25–50 % of range.
-    # Original 62–79 % conflicted with DISCOUNT (< 50 %) and was never earnable.
-    ote_zone = 25.0 <= position_pct <= 50.0
+    # OTE (Optimal Trade Entry) = 61.8–78.6 % Fibonacci retracement from range high.
+    rang     = range_high - range_low
+    fib_618  = range_high - rang * 0.618
+    fib_786  = range_high - rang * 0.786
+    ote_zone = fib_786 <= current <= fib_618
 
     return {
         "zone":         zone,
@@ -677,7 +679,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     body_pct   = body / close
     wick_ratio = (high - close) / candle_range
 
-    if body_pct < 0.0015:     # body < 0.15 %
+    if body_pct < 0.001:      # body < 0.10 %
         return False
     if wick_ratio > 0.20:     # upper wick > 20 % of range
         return False
@@ -686,7 +688,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     start      = max(0, idx - 20)
     avg_vol    = float(df.iloc[start:idx]["volume"].mean()) if idx > start else 0.0
     candle_vol = float(c["volume"])
-    if avg_vol > 0 and candle_vol < 1.1 * avg_vol:
+    if avg_vol > 0 and candle_vol < 1.05 * avg_vol:
         return False
 
     return True
@@ -727,7 +729,7 @@ def _is_two_candle_displacement(df: pd.DataFrame, idx: int) -> bool:
     start    = max(0, idx - 1 - 20)
     avg_vol  = float(df.iloc[start:idx - 1]["volume"].mean()) if idx - 1 > start else 0.0
     avg_two  = (float(c1["volume"]) + float(c2["volume"])) / 2.0
-    if avg_vol > 0 and avg_two < 1.1 * avg_vol:
+    if avg_vol > 0 and avg_two < 1.05 * avg_vol:
         return False
 
     return True
@@ -740,45 +742,49 @@ def _is_confirmation_candle(
 ) -> float:
     """
     Returns a confirmation score contribution:
-      1.0 — any of the last 3 candles is bullish and closes inside a zone
-              OR within 1 % of the zone boundary (near-zone confirmation)
-      0.5 — current price is approaching a zone from above (within 2 % of zone top)
+      1.0 — any of the last 3 candles closes INSIDE a bullish FVG or OB zone
+      1.0 — the last 2 candles are both bullish (momentum confirmation,
+              regardless of zone proximity)
+      0.5 — current price is within 0.5 % above any zone top (approaching)
       0.0 — no confirmation signal
-
-    Active zones: unfilled bullish FVGs and unmitigated bullish OBs.
     """
     n = len(df)
     if n < 1:
         return 0.0
 
-    active_zones: List[Tuple[float, float]] = []
-    for f in fvgs:
-        if not f.filled and f.type == "bullish":
-            active_zones.append((f.bottom, f.top))
-    for o in obs:
-        if not o.mitigated and o.type == "bullish":
-            active_zones.append((o.bottom, o.top))
+    active_zones: List[Tuple[float, float]] = [
+        (f.bottom, f.top) for f in fvgs if not f.filled and f.type == "bullish"
+    ] + [
+        (o.bottom, o.top) for o in obs if not o.mitigated and o.type == "bullish"
+    ]
 
-    if not active_zones:
-        return 0.0
+    # Method A: bullish close inside zone (last 3 candles)
+    if active_zones:
+        lookback = min(3, n)
+        for i in range(n - 1, n - lookback - 1, -1):
+            c     = df.iloc[i]
+            close = float(c["close"])
+            open_ = float(c["open"])
+            if close <= open_:
+                continue
+            for zone_bottom, zone_top in active_zones:
+                if zone_bottom <= close <= zone_top:
+                    return 1.0
 
-    # Full confirmation: bullish close inside zone OR within 1 % of zone boundary
-    lookback = min(3, n)
-    for i in range(n - 1, n - lookback - 1, -1):
-        c     = df.iloc[i]
-        close = float(c["close"])
-        open_ = float(c["open"])
-        if close <= open_:
-            continue  # must be bullish
+    # Method B: last 2 candles both bullish (momentum confirmation)
+    if n >= 2:
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        if (float(last["close"]) > float(last["open"]) and
+                float(prev["close"]) > float(prev["open"])):
+            return 1.0
+
+    # Partial: price approaching zone top from above (within 0.5 %)
+    if active_zones:
+        current = float(df.iloc[-1]["close"])
         for zone_bottom, zone_top in active_zones:
-            if zone_bottom * 0.99 <= close <= zone_top * 1.01:
-                return 1.0
-
-    # Partial confirmation: current price approaching zone top from above (within 2 %)
-    current = float(df.iloc[-1]["close"])
-    for zone_bottom, zone_top in active_zones:
-        if zone_top < current <= zone_top * 1.02:
-            return 0.5
+            if zone_top < current <= zone_top * 1.005:
+                return 0.5
 
     return 0.0
 
@@ -890,9 +896,9 @@ def generate_signal(
         score_bd["sweep"] = 1
 
     # ── 5. Displacement candle ───────────────────────────────────────────────
-    # Single candle (body ≥ 0.15 %) or two consecutive bullish candles
-    # with combined body ≥ 0.25 %, checked across the most recent 15 candles.
-    for di in range(max(0, n - 15), n):
+    # Single candle (body ≥ 0.10 %) or two consecutive bullish candles
+    # with combined body ≥ 0.25 %, checked across the most recent 20 candles.
+    for di in range(max(0, n - 20), n):
         if _is_displacement_candle(df, di) or _is_two_candle_displacement(df, di):
             score_bd["displacement"] = 1
             break

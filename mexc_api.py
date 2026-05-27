@@ -38,8 +38,9 @@ class MEXCSpotAPI:
     Handles HMAC-SHA256 signing, retries, and error normalisation.
     """
 
-    MAX_RETRIES = 3
-    RETRY_BACKOFF = 2  # seconds, doubled on each retry
+    MAX_RETRIES   = 3
+    MAX_THROTTLE  = 5   # max consecutive 429 responses before giving up
+    RETRY_BACKOFF = 2   # seconds, doubled on each retry
 
     def __init__(self):
         self.api_key = API_KEY
@@ -112,9 +113,14 @@ class MEXCSpotAPI:
         if body_str is not None:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
 
-        last_exc: Optional[Exception] = None
+        # Order endpoints (POST/DELETE) need more time than public data reads
+        _timeout = 30 if method in ("POST", "DELETE") else 15
 
-        for attempt in range(self.MAX_RETRIES):
+        last_exc:      Optional[Exception] = None
+        attempt        = 0
+        throttle_count = 0
+
+        while attempt < self.MAX_RETRIES:
             try:
                 resp = self.session.request(
                     method,
@@ -122,16 +128,23 @@ class MEXCSpotAPI:
                     params=query_params or None,           # → URL query string
                     data=body_str or body_params or None,  # → form-encoded body
                     headers=headers,
-                    timeout=5,
+                    timeout=_timeout,
                 )
 
                 if resp.status_code == 429:
+                    throttle_count += 1
+                    if throttle_count >= self.MAX_THROTTLE:
+                        _err_log.error(
+                            "429 rate-limit: %s %s hit %d times — giving up",
+                            method, endpoint, throttle_count,
+                        )
+                        raise MEXCAPIError(429, -1, f"Rate limit hit {throttle_count}x for {endpoint}")
                     _err_log.warning(
-                        "429 rate-limit: %s %s (attempt %d/%d) — sleeping 60s",
-                        method, endpoint, attempt + 1, self.MAX_RETRIES,
+                        "429 rate-limit: %s %s (throttle %d/%d) — sleeping 60s",
+                        method, endpoint, throttle_count, self.MAX_THROTTLE,
                     )
                     time.sleep(60)
-                    continue
+                    continue  # does NOT count as a retry attempt
 
                 data = resp.json()
 
@@ -154,29 +167,33 @@ class MEXCSpotAPI:
                 raise   # already logged; propagate immediately
 
             except requests.Timeout as exc:
+                attempt += 1
                 _err_log.warning(
                     "Timeout: %s %s (attempt %d/%d) — retrying in 5s",
-                    method, endpoint, attempt + 1, self.MAX_RETRIES,
+                    method, endpoint, attempt, self.MAX_RETRIES,
                 )
                 last_exc = exc
                 time.sleep(5)
 
             except requests.ConnectionError as exc:
                 wait = self.RETRY_BACKOFF * (2 ** attempt)
+                attempt += 1
                 _err_log.warning(
                     "ConnectionError: %s %s (attempt %d/%d) — retrying in %.0fs",
-                    method, endpoint, attempt + 1, self.MAX_RETRIES, wait,
+                    method, endpoint, attempt, self.MAX_RETRIES, wait,
                 )
                 last_exc = exc
                 time.sleep(wait)
 
             except Exception as exc:
+                wait = self.RETRY_BACKOFF * (2 ** attempt)
+                attempt += 1
                 _err_log.error(
                     "Unexpected error: %s %s (attempt %d/%d): %s",
-                    method, endpoint, attempt + 1, self.MAX_RETRIES, exc,
+                    method, endpoint, attempt, self.MAX_RETRIES, exc,
                 )
                 last_exc = exc
-                time.sleep(self.RETRY_BACKOFF * (2 ** attempt))
+                time.sleep(wait)
 
         _err_log.error(
             "Max retries (%d) exceeded for %s %s — last error: %s",
