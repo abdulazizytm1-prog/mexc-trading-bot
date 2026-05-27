@@ -93,6 +93,14 @@ def _handle_exit(
     )
 
     try:
+        # Cancel bracket orders before any market sell to prevent double-execution
+        for oid in (getattr(position, "tp_order_id", None), getattr(position, "sl_order_id", None)):
+            if oid:
+                try:
+                    api.cancel_order(symbol, oid)
+                except MEXCAPIError:
+                    pass  # already filled or cancelled — safe to ignore
+
         if exit_reason == "TP1":
             sell_qty = position.partial_qty(1)
             api.place_market_sell(symbol, sell_qty)
@@ -220,6 +228,7 @@ def _handle_entry(
             entry_atr         = getattr(signal, "atr", 0.0),
         )
         risk_mgr.add_position(position)
+        risk_mgr.place_oco_for_position(symbol)
 
         log.info(
             "[%s] BUY %.6f @ %.6f (fill) | SL=%.6f | TP1=%.6f TP2=%.6f TP3=%.6f "

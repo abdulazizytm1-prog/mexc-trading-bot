@@ -74,7 +74,8 @@ if not _decision_log.handlers:
     _decision_log.propagate = False
 
 _JOURNAL_PATH          = Path(__file__).parent / "trade-journal.json"
-_LOOP_INTERVAL         = 180   # 3 minutes between scans
+_LOOP_INTERVAL         = 120   # 2 min base tick (fast-scan cadence)
+_FULL_SCAN_INTERVAL    = 600   # 10 min full universe scan
 _SMART_EXIT_INTERVAL   = 480   # 8 minutes between smart exit checks
 _CLAUDE_MODEL          = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 _MAX_CLAUDE_CANDIDATES = 3     # top-N signals ranked by score and sent to Claude per cycle
@@ -237,6 +238,10 @@ class ClaudeTrader:
 
         # Current market regime — updated each scan cycle
         self._current_regime: str = "RANGING"
+
+        # Fast-scan state — updated after each full scan
+        self._full_scan_timer: float = 0.0      # timestamp of last full universe scan
+        self._watch_symbols:   List[str] = []   # symbols with score ≥ 7 from last full scan
 
         # Telegram command handler — starts after MEXC connection is confirmed
         self._cmd_handler = tg.TelegramCommandHandler(self)
@@ -1555,7 +1560,27 @@ Respond ONLY in the required JSON format."""
                 if bull_4h:
                     log.info("[Diag] BTC 4H bull (+1%%) — correlation guard relaxed to 2")
 
-                # ── Phase 1: Collect qualifying signals from full universe ─
+                # ── Phase 1: Determine scan scope (full every 10 min, fast every 2 min) ─
+                _now_ts       = time.time()
+                _is_full_scan = (_now_ts - self._full_scan_timer) >= _FULL_SCAN_INTERVAL
+
+                if _is_full_scan:
+                    self._full_scan_timer = _now_ts
+                    # BEAR regime: restrict universe to top 15 highest-quality coins
+                    scan_pairs = active_pairs[:15] if regime == "BEAR" else active_pairs
+                    log.info("[Scan] Full scan — %d coins", len(scan_pairs))
+                elif self._watch_symbols:
+                    scan_pairs = [s for s in self._watch_symbols if s in set(active_pairs)]
+                    log.info(
+                        "[Scan] Fast scan — %d watched symbol(s): %s",
+                        len(scan_pairs), scan_pairs,
+                    )
+                else:
+                    log.debug("[Scan] No watch symbols — sleeping until next full scan.")
+                    elapsed = time.time() - loop_start
+                    time.sleep(max(0.0, _LOOP_INTERVAL - elapsed))
+                    continue
+
                 self._scan_stats = {k: 0 for k in (
                     "dex_spike", "atr", "correlation", "position_limit",
                     "order_book", "structure", "no_signal", "low_score",
@@ -1563,9 +1588,6 @@ Respond ONLY in the required JSON format."""
                 )}
                 qualifying: List[TradeSignal] = []
                 checked = 0
-
-                # BEAR regime: restrict universe to top 15 highest-quality coins
-                scan_pairs = active_pairs[:15] if regime == "BEAR" else active_pairs
 
                 for symbol in scan_pairs:
                     coin_score = self._coin_sel.get_quality_score(symbol)
@@ -1581,6 +1603,14 @@ Respond ONLY in the required JSON format."""
                     )
                     if sig is not None:
                         qualifying.append(sig)
+
+                # ── Update fast-scan watch list after full scan ────────────
+                if _is_full_scan:
+                    self._watch_symbols = [sig.symbol for sig in qualifying if sig.score >= 7]
+                    if self._watch_symbols:
+                        log.info("[FastScan] Watch list → %s", self._watch_symbols)
+                    else:
+                        log.info("[FastScan] No 7+ signals — watch list cleared")
 
                 # ── Phase 2: Rank by score; send top N to Claude ──────────
                 qualifying.sort(key=lambda s: s.score, reverse=True)
@@ -1692,6 +1722,7 @@ Respond ONLY in the required JSON format."""
                             cost, fill_price, quantity, order_id = result
                             self._balance -= cost
                             entries_this_cycle += 1
+                            self._watch_symbols = [s for s in self._watch_symbols if s != symbol]
                             self._log_trade(signal, response, fill_price, quantity, order_id)
 
                             risk = fill_price - signal.stop_loss

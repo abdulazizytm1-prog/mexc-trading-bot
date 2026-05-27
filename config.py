@@ -21,7 +21,7 @@ QUOTE_CURRENCY = "USDT"
 
 # Dynamic pair selection (Coinranking Professional)
 COIN_SELECTOR_REFRESH_HOURS = 4    # Rebuild pair universe every N hours
-COINRANKING_PAGES = 2              # 2 × 100 = 200 coins per refresh
+COINRANKING_PAGES = 3              # 3 × 100 = 300 coins per refresh
 MIN_SELECTED_PAIRS = 5             # Supplement with fallbacks if fewer qualify
 MAX_SELECTED_PAIRS = 50            # Hard cap on active trading pairs
 

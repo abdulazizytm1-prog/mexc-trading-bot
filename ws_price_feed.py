@@ -236,8 +236,6 @@ class WSPriceFeed:
 
                 if exchange_type == "dex":
                     td.dex_volume += quote_vol
-                    # reset CEX so ratio reflects recent ticks only
-                    td.dex_volume = quote_vol
                 elif exchange_type == "cex":
                     td.cex_volume = quote_vol
 

@@ -398,10 +398,10 @@ class CoinSelector:
             log.warning("[CoinSelector] Zero MEXC pairs — using fallback.")
             return self._pairs or list(config.FALLBACK_PAIRS)
 
-        # ── Step 6: Fetch detail for top 40 candidates ────────────────────────
+        # ── Step 6: Fetch detail for top 50 candidates ────────────────────────
         # Sort by 24h volume (descending) before selecting detail targets
         on_mexc.sort(key=lambda c: float(c.get("24hVolume") or 0), reverse=True)
-        detail_targets = on_mexc[:40]
+        detail_targets = on_mexc[:50]
         uuids = [c["uuid"] for c in detail_targets if c.get("uuid")]
 
         log.info("[CoinSelector] Step 6: fetching detail for %d coins…", len(uuids))
