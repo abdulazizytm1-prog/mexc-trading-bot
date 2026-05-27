@@ -74,7 +74,7 @@ class TradeSignal:
     zone_type:    str    # "FVG" | "OB" | "FVG+OB" | "SWEEP+FVG" | "SWEEP+OB"
     strength:     float  # score / 10  (0.0 – 1.0)
     # ICT/SMC extended fields
-    score:              int   = 0
+    score:              float = 0
     tp1:                float = 0.0   # 1:1 RR — close 33%
     tp2:                float = 0.0   # 2:1 RR — close 33%
     tp3:                float = 0.0   # 3:1 RR — close 34%
@@ -677,7 +677,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     body_pct   = body / close
     wick_ratio = (high - close) / candle_range
 
-    if body_pct < 0.002:      # body < 0.2 %
+    if body_pct < 0.0015:     # body < 0.15 %
         return False
     if wick_ratio > 0.20:     # upper wick > 20 % of range
         return False
@@ -686,7 +686,7 @@ def _is_displacement_candle(df: pd.DataFrame, idx: int) -> bool:
     start      = max(0, idx - 20)
     avg_vol    = float(df.iloc[start:idx]["volume"].mean()) if idx > start else 0.0
     candle_vol = float(c["volume"])
-    if avg_vol > 0 and candle_vol < 1.2 * avg_vol:
+    if avg_vol > 0 and candle_vol < 1.1 * avg_vol:
         return False
 
     return True
@@ -720,14 +720,14 @@ def _is_two_candle_displacement(df: pd.DataFrame, idx: int) -> bool:
         return False
 
     combined_body = c_2 - o1
-    if combined_body / c_2 < 0.003:   # combined body < 0.3 %
+    if combined_body / c_2 < 0.0025:  # combined body < 0.25 %
         return False
 
     # Volume: average of the two candles vs prior 20-bar average
     start    = max(0, idx - 1 - 20)
     avg_vol  = float(df.iloc[start:idx - 1]["volume"].mean()) if idx - 1 > start else 0.0
     avg_two  = (float(c1["volume"]) + float(c2["volume"])) / 2.0
-    if avg_vol > 0 and avg_two < 1.2 * avg_vol:
+    if avg_vol > 0 and avg_two < 1.1 * avg_vol:
         return False
 
     return True
@@ -737,30 +737,50 @@ def _is_confirmation_candle(
     df: pd.DataFrame,
     fvgs: List[FairValueGap],
     obs: List[OrderBlock],
-) -> bool:
+) -> float:
     """
-    True when the last candle in `df` is a bullish candle whose close is
-    inside at least one active bullish FVG or Order Block.
+    Returns a confirmation score contribution:
+      1.0 — any of the last 3 candles is bullish and closes inside a zone
+              OR within 1 % of the zone boundary (near-zone confirmation)
+      0.5 — current price is approaching a zone from above (within 2 % of zone top)
+      0.0 — no confirmation signal
+
+    Active zones: unfilled bullish FVGs and unmitigated bullish OBs.
     """
-    if len(df) < 1:
-        return False
+    n = len(df)
+    if n < 1:
+        return 0.0
 
-    c     = df.iloc[-1]
-    close = float(c["close"])
-    open_ = float(c["open"])
+    active_zones: List[Tuple[float, float]] = []
+    for f in fvgs:
+        if not f.filled and f.type == "bullish":
+            active_zones.append((f.bottom, f.top))
+    for o in obs:
+        if not o.mitigated and o.type == "bullish":
+            active_zones.append((o.bottom, o.top))
 
-    if close <= open_:
-        return False   # must be bullish
+    if not active_zones:
+        return 0.0
 
-    in_fvg = any(
-        not f.filled and f.type == "bullish" and f.bottom <= close <= f.top
-        for f in fvgs
-    )
-    in_ob = any(
-        not o.mitigated and o.type == "bullish" and o.bottom <= close <= o.top
-        for o in obs
-    )
-    return in_fvg or in_ob
+    # Full confirmation: bullish close inside zone OR within 1 % of zone boundary
+    lookback = min(3, n)
+    for i in range(n - 1, n - lookback - 1, -1):
+        c     = df.iloc[i]
+        close = float(c["close"])
+        open_ = float(c["open"])
+        if close <= open_:
+            continue  # must be bullish
+        for zone_bottom, zone_top in active_zones:
+            if zone_bottom * 0.99 <= close <= zone_top * 1.01:
+                return 1.0
+
+    # Partial confirmation: current price approaching zone top from above (within 2 %)
+    current = float(df.iloc[-1]["close"])
+    for zone_bottom, zone_top in active_zones:
+        if zone_top < current <= zone_top * 1.02:
+            return 0.5
+
+    return 0.0
 
 
 # ================================================================== #
@@ -870,9 +890,9 @@ def generate_signal(
         score_bd["sweep"] = 1
 
     # ── 5. Displacement candle ───────────────────────────────────────────────
-    # Single candle (body ≥ 0.2 %) or two consecutive bullish candles
-    # with combined body ≥ 0.3 %, checked across the most recent 10 candles.
-    for di in range(max(0, n - 10), n):
+    # Single candle (body ≥ 0.15 %) or two consecutive bullish candles
+    # with combined body ≥ 0.25 %, checked across the most recent 15 candles.
+    for di in range(max(0, n - 15), n):
         if _is_displacement_candle(df, di) or _is_two_candle_displacement(df, di):
             score_bd["displacement"] = 1
             break
@@ -949,18 +969,17 @@ def generate_signal(
         score_bd["vwap"] = 1
 
     # ── 9. Confirmation candle ───────────────────────────────────────────────
-    if _is_confirmation_candle(df, fvgs, obs):
-        score_bd["confirmation"] = 1
+    score_bd["confirmation"] = _is_confirmation_candle(df, fvgs, obs)
 
     # ── Score gate ───────────────────────────────────────────────────────────
     total_score = sum(score_bd.values())
     log.info(
-        "[%s] generate_signal: score=%d/10 breakdown=%s",
+        "[%s] generate_signal: score=%g/10 breakdown=%s",
         symbol, total_score, score_bd,
     )
     if total_score < _MIN_SCORE:
         log.info(
-            "[%s] generate_signal: score %d < min %d — skipping",
+            "[%s] generate_signal: score %g < min %d — skipping",
             symbol, total_score, _MIN_SCORE,
         )
         return None
