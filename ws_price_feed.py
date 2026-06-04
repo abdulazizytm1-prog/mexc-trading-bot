@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import config
 
@@ -279,7 +279,7 @@ class WSPriceFeed:
                 td.updated_at  = time.time()
 
                 if exchange_type == "dex":
-                    td.dex_volume += quote_vol
+                    td.dex_volume = quote_vol   # set, not accumulate — prevents ratio drift to 1.0
                 elif exchange_type == "cex":
                     td.cex_volume = quote_vol
 

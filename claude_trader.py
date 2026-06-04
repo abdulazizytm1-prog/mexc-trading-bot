@@ -30,7 +30,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import anthropic
+try:
+    import anthropic
+    _HAS_ANTHROPIC = True
+except ImportError:
+    anthropic = None        # type: ignore[assignment]
+    _HAS_ANTHROPIC = False
 
 import config
 import news_filter
@@ -215,13 +220,22 @@ class ClaudeTrader:
     """
 
     def __init__(self) -> None:
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            raise EnvironmentError(
-                "ANTHROPIC_API_KEY is not set. "
-                "Add it to your .env file or Railway environment variables."
-            )
-        self._client     = anthropic.Anthropic(api_key=api_key)
+        if config.USE_CLAUDE_GATE:
+            if not _HAS_ANTHROPIC:
+                raise ImportError(
+                    "USE_CLAUDE_GATE=True requires the 'anthropic' package. "
+                    "Run: pip install anthropic  OR set USE_CLAUDE_GATE=False in config.py."
+                )
+            api_key = os.getenv("ANTHROPIC_API_KEY", "")
+            if not api_key:
+                raise EnvironmentError(
+                    "ANTHROPIC_API_KEY is not set. "
+                    "Set USE_CLAUDE_GATE=False in config.py to run without it."
+                )
+            self._client = anthropic.Anthropic(api_key=api_key)
+        else:
+            self._client = None
+            log.info("[ClaudeTrader] USE_CLAUDE_GATE=False — Anthropic API not required.")
         self._api        = MEXCSpotAPI()
         self._risk_mgr   = RiskManager()
         self._coin_sel   = CoinSelector(self._api)
@@ -452,12 +466,14 @@ class ClaudeTrader:
                 st["no_zone"] = st.get("no_zone", 0) + 1
                 return None
 
-            # ── Price within 1% of entry zone ─────────────────────────────
-            if current_price > 0:
-                proximity_pct = abs(current_price - signal.entry_price) / signal.entry_price
+            # ── Price within 1% of zone (live WS price vs kline-close entry) ──
+            # Only runs when ws_price is available; signal.entry_price == close
+            # price so comparing current_price (also close) would always give 0%.
+            if ws_price and signal.entry_price > 0:
+                proximity_pct = abs(ws_price - signal.entry_price) / signal.entry_price
                 if proximity_pct > 0.01:
                     log.info(
-                        "[Diag] %s | Signal: score=%d/10 price %.2f%% from zone ✗ (>1%%)",
+                        "[Diag] %s | Signal: score=%d/10 live price %.2f%% from zone ✗ (>1%%)",
                         symbol, signal.score, proximity_pct * 100,
                     )
                     st["price_far"] = st.get("price_far", 0) + 1
@@ -645,7 +661,7 @@ class ClaudeTrader:
                     "reason":   r.get("reason", ""),
                     "new_sl":   r.get("new_sl"),
                 }
-            except anthropic.APIError as exc:
+            except Exception as exc:  # covers anthropic.APIError when package is present
                 log.warning("[SmartExit] Claude API error for %s (%d/2): %s", symbol, attempt + 1, exc)
                 if attempt == 0:
                     time.sleep(5)
@@ -713,7 +729,12 @@ class ClaudeTrader:
             self._api.place_market_sell(symbol, half)
             partial_pnl = (price - position.effective_entry) * half
             self._risk_mgr.record_closed_pnl(partial_pnl)
-            position.quantity = max(round(position.quantity - half, 8), 0.0)
+            # Set quantity to the amount still held and clear TP-hit flags so
+            # remaining_qty() = quantity exactly (avoids double-subtraction of
+            # already-sold TP fractions against the now-smaller base quantity).
+            position.quantity  = max(round(remaining - half, 8), 0.0)
+            position.tp1_hit   = False
+            position.tp2_hit   = False
             self._risk_mgr.save_positions()
             next_tp = position.tp2 if position.tp1_hit else position.tp1
             if next_tp > 0 and position.quantity > 0:
@@ -770,32 +791,20 @@ class ClaudeTrader:
         sym_bias: str      = "UNKNOWN"
         vol_ratio: float   = 1.0
         tech_reason: Optional[str] = None
-        claude_trigger: Optional[str] = None
 
         try:
             klines = self._api.get_klines(symbol, "60m", 50)
             if klines:
-                df       = candles_to_df(klines)
-                sym_bias = detect_market_structure(df).get("bias", "UNKNOWN")
-                vols     = df["volume"].astype(float).values
-                avg_v    = float(vols[-21:-1].mean()) if len(vols) > 20 else float(vols.mean())
+                df        = candles_to_df(klines)
+                sym_bias  = detect_market_structure(df).get("bias", "UNKNOWN")
+                vols      = df["volume"].astype(float).values
+                avg_v     = float(vols[-21:-1].mean()) if len(vols) > 20 else float(vols.mean())
                 vol_ratio = float(vols[-1]) / avg_v if avg_v > 0 else 1.0
 
-                # Immediate: structure flipped BEARISH (CHoCH proxy)
                 if sym_bias == "BEARISH":
                     tech_reason = "CHoCH — 1H structure flipped BEARISH"
-
-                # Immediate: price broke below entry zone
                 elif float(df.iloc[-1]["close"]) < entry * 0.997:
                     tech_reason = "Price broke below OB/FVG entry zone"
-
-                # Claude evaluation: RSI divergence
-                elif self._rsi_divergence(df):
-                    claude_trigger = "Bearish RSI divergence on 1H"
-
-                # Claude evaluation: volume dry + non-bullish structure
-                elif self._volume_dried_up(df) and sym_bias != "BULLISH":
-                    claude_trigger = f"Volume dry-up ({vol_ratio:.2f}x avg) + structure {sym_bias}"
 
         except Exception as exc:
             log.debug("[SmartExit] Technical check error for %s: %s", symbol, exc)
@@ -827,57 +836,28 @@ class ClaudeTrader:
             tg.position_update(symbol, "MOVE_SL", f"Aggressive trailing activated at {r_mult:.2f}R", pnl_usdt, pnl_pct)
             return
 
-        # ── 4. Time-based / ambiguous → Claude ────────────────────────
-        if hours > 8:
-            claude_trigger = claude_trigger or f"Position open {hours:.1f}h — evaluate continuation"
-
-        if btc["volume_ratio"] < 0.5 and not claude_trigger:
-            claude_trigger = f"BTC volume very low ({btc['volume_ratio']:.2f}x avg)"
-
-        if claude_trigger:
-            prompt   = self._build_exit_prompt(symbol, position, price, btc, hours, vol_ratio, fg_val)
-            result   = self._analyze_exit_with_claude(symbol, prompt)
-            decision = result["decision"]
-            reason   = result["reason"]
-            log.info("[SmartExit] %s — Claude: %s | %s", symbol, decision, reason)
-
-            if decision == "CLOSE":
-                self._execute_smart_close(
-                    symbol, position, price, f"Claude: {reason}", pnl_usdt, pnl_pct, tick_size
-                )
+        # ── 4. Rule-based ambiguous exits ─────────────────────────────
+        # RSI > 75: overbought — partial close 50 %
+        if df is not None:
+            _closes = list(df["close"].astype(float).values[-20:])
+            _rsi    = self._calc_rsi(_closes, 14) if len(_closes) >= 16 else []
+            if _rsi and _rsi[-1] > 75.0:
+                _reason = f"RSI={_rsi[-1]:.1f} overbought — locking 50% profit"
+                log.info("[SmartExit] %s — %s", symbol, _reason)
+                self._execute_partial_smart_close(symbol, position, price, _reason, pnl_usdt, pnl_pct, tick_size)
                 return
 
-            elif decision == "PARTIAL_CLOSE":
-                self._execute_partial_smart_close(
-                    symbol, position, price, f"Claude: {reason}", pnl_usdt, pnl_pct, tick_size
-                )
-                return
+        # Stalled trade: open > 12h and still in loss — cut 50 %
+        if hours > 12 and pnl_usdt < 0:
+            _reason = f"Stalled {hours:.1f}h in loss ({pnl_usdt:+.4f} USDT) — cut 50%"
+            log.info("[SmartExit] %s — %s", symbol, _reason)
+            self._execute_partial_smart_close(symbol, position, price, _reason, pnl_usdt, pnl_pct, tick_size)
+            return
 
-            elif decision == "MOVE_SL":
-                raw_sl = result.get("new_sl")
-                if raw_sl:
-                    try:
-                        new_sl = round(float(raw_sl), 8)
-                        if new_sl > position.stop_loss:
-                            position.stop_loss = new_sl
-                            self._risk_mgr.save_positions()
-                            next_tp = position.tp2 if position.tp1_hit else position.tp1
-                            if next_tp > 0:
-                                self._risk_mgr.cancel_oco_for_position(symbol, self._api)
-                                self._risk_mgr.place_oco_for_position(symbol, self._api, next_tp, new_sl, tick_size)
-                            log.info("[SmartExit] %s — SL raised to %.6f (Claude)", symbol, new_sl)
-                    except (ValueError, TypeError):
-                        pass
-                tg.position_update(symbol, "MOVE_SL", reason, pnl_usdt, pnl_pct)
-
-            else:  # HOLD
-                tg.position_update(symbol, "HOLD", reason, pnl_usdt, pnl_pct)
-
-        else:
-            log.info(
-                "[SmartExit] %s — HOLD | %.2fR | BTC:%s | F&G:%d | hrs:%.1f",
-                symbol, r_mult, btc["bias"], fg_val, hours,
-            )
+        log.info(
+            "[SmartExit] %s — HOLD | %.2fR | BTC:%s | F&G:%d | hrs:%.1f",
+            symbol, r_mult, btc["bias"], fg_val, hours,
+        )
 
     def _check_smart_exits(self) -> None:
         """
@@ -916,8 +896,14 @@ class ClaudeTrader:
         rr_ratio    = round((signal.tp3 - signal.entry_price) / risk, 2) if risk > 0 else 0.0
         btc_dom     = getattr(market_context, "btc_dominance",   "N/A")
         mkt_change  = getattr(market_context, "market_change_pct", "N/A")
-        fear_greed  = getattr(market_context, "fear_greed",      "N/A")
-        btc_bias    = getattr(market_context, "btc_bias",        "N/A")
+        # fear_greed is not on MarketContext — fall back to crypto_sentiment arg
+        fear_greed = (
+            crypto_sentiment.get("fear_greed", "N/A")
+            if crypto_sentiment
+            else getattr(market_context, "fear_greed", "N/A")
+        )
+        # btc_bias is not on MarketContext — use HTF structure from the signal
+        btc_bias = getattr(market_context, "btc_bias", signal.structure or "N/A")
 
         confluence = []
         if signal.liquidity_sweep:     confluence.append("Liquidity Sweep")
@@ -1019,7 +1005,7 @@ Respond ONLY in the required JSON format."""
 
                 return json.loads(raw_text.strip())
 
-            except anthropic.APIError as exc:
+            except Exception as exc:  # covers anthropic.APIError when package is present
                 log.warning(
                     "[Claude] API error on %s (attempt %d/2): %s",
                     signal.symbol, attempt + 1, exc,
@@ -1106,7 +1092,7 @@ Respond ONLY in the required JSON format."""
     #  Trade execution                                                  #
     # ---------------------------------------------------------------- #
 
-    def _execute_entry(self, signal: TradeSignal, sl_atr_mult: float = 1.5) -> Optional[float]:
+    def _execute_entry(self, signal: TradeSignal, sl_atr_mult: float = 1.5) -> Optional[tuple]:
         """
         Size and execute a market buy. Returns cost in USDT or None on failure.
         Always fetches a fresh balance immediately before sizing so the 1% risk
@@ -1186,7 +1172,7 @@ Respond ONLY in the required JSON format."""
                 tp2         = tp2,
                 tp3         = tp3,
                 open_time   = datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                score       = signal.score,
+                score       = int(signal.score),
                 entry_atr   = getattr(signal, "atr", 0.0),
             )
             self._risk_mgr.add_position(position)
@@ -1642,12 +1628,13 @@ Respond ONLY in the required JSON format."""
                     _s.get("low_score", 0) +
                     _s.get("low_strength", 0)
                 )
+                _gate_label   = "Claude" if config.USE_CLAUDE_GATE else "score-gate"
                 _scan_summary = (
                     f"{checked} checked | "
                     f"{_s.get('atr', 0)} ATR fail | "
                     f"{_s.get('structure', 0)} structure fail | "
                     f"{_no_sig_total} no/low signal | "
-                    f"{_s.get('approved', 0)} approved → Claude: {len(candidates)}"
+                    f"{_s.get('approved', 0)} approved → {_gate_label}: {len(candidates)}"
                 )
                 log.info("[Scan Summary] %s", _scan_summary)
 
@@ -1670,8 +1657,9 @@ Respond ONLY in the required JSON format."""
                 )
 
                 log.info(
-                    "[Scan] %d coins checked → %d active signals → top %d sent to Claude",
+                    "[Scan] %d coins checked → %d active signals → top %d → %s",
                     checked, len(qualifying), len(candidates),
+                    "sent to Claude" if config.USE_CLAUDE_GATE else "score-gate evaluation",
                 )
 
                 entries_this_cycle = 0
@@ -1695,65 +1683,95 @@ Respond ONLY in the required JSON format."""
                     if not self._risk_mgr.can_open_position(symbol):
                         continue
 
-                    log.info(
-                        "[%s] → Claude: score=%d/10 zone=%s kill=%s "
-                        "trade_type=%s entry=%.6f SL=%.6f TP3=%.6f",
-                        symbol, signal.score, signal.zone_type,
-                        signal.kill_zone, trade_type, signal.entry_price,
-                        signal.stop_loss, signal.tp3,
-                    )
-
                     try:
-                        response = self.analyze_signal_with_claude(
-                            signal, ctx, positions_count, daily_pnl_pct,
-                            crypto_sentiment,
-                        )
+                        if config.USE_CLAUDE_GATE:
+                            # ── Claude gate ───────────────────────────────
+                            log.info(
+                                "[%s] → Claude: score=%d/10 zone=%s kill=%s "
+                                "trade_type=%s entry=%.6f SL=%.6f TP3=%.6f",
+                                symbol, signal.score, signal.zone_type,
+                                signal.kill_zone, trade_type, signal.entry_price,
+                                signal.stop_loss, signal.tp3,
+                            )
+                            response = self.analyze_signal_with_claude(
+                                signal, ctx, positions_count, daily_pnl_pct,
+                                crypto_sentiment,
+                            )
 
-                        if response is None:
-                            if signal.score >= 8:
-                                log.warning(
-                                    "[%s] Claude API unavailable — score=%.1f≥8, auto-executing (fallback).",
-                                    symbol, signal.score,
+                            if response is None:
+                                if signal.score >= 8:
+                                    log.warning(
+                                        "[%s] Claude API unavailable — score=%.1f≥8, auto-executing (fallback).",
+                                        symbol, signal.score,
+                                    )
+                                    response = {
+                                        "decision":    "BUY",
+                                        "confidence":  float(signal.score),
+                                        "risk_level":  "MEDIUM",
+                                        "reasoning":   "Claude API unavailable — auto-executed based on high score",
+                                        "factors":     ["auto-fallback", f"score={signal.score:.1f}/10"],
+                                        "conclusion":  "API fallback execution",
+                                        "invalidation": "",
+                                    }
+                                else:
+                                    log.warning(
+                                        "[%s] Claude API unavailable, score=%.1f<8 — skipping.",
+                                        symbol, signal.score,
+                                    )
+                                    continue
+
+                            self._log_decision(symbol, response, trade_type)
+
+                            decision   = response.get("decision", "NO_TRADE")
+                            confidence = float(response.get("confidence", 0))
+
+                            if decision != "BUY" or confidence < 8:
+                                log.info(
+                                    "[%s] Claude: %s (confidence=%.1f) — %s",
+                                    symbol, decision, confidence,
+                                    response.get("reasoning") or response.get("reason", ""),
                                 )
-                                response = {
-                                    "decision":    "BUY",
-                                    "confidence":  float(signal.score),
-                                    "risk_level":  "MEDIUM",
-                                    "reasoning":   "Claude API unavailable — auto-executed based on high score",
-                                    "factors":     ["auto-fallback", f"score={signal.score:.1f}/10"],
-                                    "conclusion":  "API fallback execution",
-                                    "invalidation": "",
-                                }
-                            else:
-                                log.warning(
-                                    "[%s] Claude API unavailable, score=%.1f<8 — skipping.",
-                                    symbol, signal.score,
+                                tg.no_trade(
+                                    symbol,
+                                    response.get("reasoning") or response.get("reason", "Claude rejected signal"),
+                                    signal.score,
                                 )
                                 continue
 
-                        self._log_decision(symbol, response, trade_type)
-
-                        decision   = response.get("decision", "NO_TRADE")
-                        confidence = float(response.get("confidence", 0))
-
-                        if decision != "BUY" or confidence < 8:
                             log.info(
-                                "[%s] Claude: %s (confidence=%.1f) — %s",
-                                symbol, decision, confidence,
-                                response.get("reasoning") or response.get("reason", ""),
+                                "[%s] Claude APPROVED (confidence=%.1f, risk=%s) — executing.",
+                                symbol, confidence, response.get("risk_level", ""),
                             )
-                            tg.no_trade(
-                                symbol,
-                                response.get("reasoning") or response.get("reason", "Claude rejected signal"),
-                                signal.score,
-                            )
-                            continue
 
-                        # ── Execute ───────────────────────────────────────
-                        log.info(
-                            "[%s] Claude APPROVED (confidence=%.1f, risk=%s) — executing.",
-                            symbol, confidence, response.get("risk_level", ""),
-                        )
+                        else:
+                            # ── Score-gate (no Claude) ────────────────────
+                            if signal.score < config.EXECUTE_SCORE:
+                                log.info(
+                                    "[%s] score=%.1f < %.1f EXECUTE_SCORE — skip",
+                                    symbol, signal.score, config.EXECUTE_SCORE,
+                                )
+                                tg.no_trade(
+                                    symbol,
+                                    f"Score {signal.score:.1f} < {config.EXECUTE_SCORE:.1f}",
+                                    signal.score,
+                                )
+                                continue
+                            _exec_reason = " + ".join(
+                                k for k, v in signal.score_breakdown.items() if v > 0
+                            )
+                            log.info(
+                                "[%s] Score-gate APPROVED (%.1f/10): %s",
+                                symbol, signal.score, _exec_reason,
+                            )
+                            response = {
+                                "decision":   "BUY",
+                                "confidence": float(signal.score),
+                                "risk_level": "MEDIUM",
+                                "reasoning":  _exec_reason,
+                            }
+                            self._log_decision(symbol, response, trade_type)
+
+                        # ── Execute (common path) ─────────────────────────
                         result = self._execute_entry(signal, sl_atr_mult=_eff_sl_mult)
                         if result:
                             cost, fill_price, quantity, order_id = result
@@ -1771,13 +1789,13 @@ Respond ONLY in the required JSON format."""
                                 tp1       = signal.tp1,
                                 tp2       = signal.tp2,
                                 tp3       = signal.tp3,
-                                score     = signal.score,
+                                score     = int(signal.score),
                                 rr        = rr,
                                 kill_zone = signal.kill_zone,
                             )
 
                     except MEXCAPIError as exc:
-                        log.error("[%s] API error during Claude evaluation: %s", symbol, exc)
+                        log.error("[%s] API error during evaluation: %s", symbol, exc)
                     except Exception as exc:
                         log.exception("[%s] Unexpected error during evaluation: %s", symbol, exc)
 
@@ -1811,6 +1829,11 @@ Respond ONLY in the required JSON format."""
 #  Entry point                                                         #
 # ------------------------------------------------------------------ #
 
-if __name__ == "__main__":
+def main() -> None:
+    """Public entry-point — importable by tests and Railway health checks."""
     trader = ClaudeTrader()
     trader.run()
+
+
+if __name__ == "__main__":
+    main()

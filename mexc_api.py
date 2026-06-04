@@ -233,17 +233,26 @@ class MEXCSpotAPI:
         params = {"symbol": symbol} if symbol else {}
         return self._get("/api/v3/exchangeInfo", params)
 
-    def get_klines(self, symbol: str, interval: str, limit: int = 200) -> List:
+    def get_klines(
+        self,
+        symbol:   str,
+        interval: str,
+        limit:    int = 200,
+        end_time: Optional[int] = None,
+    ) -> List:
         """
-        Returns raw kline list.
+        Returns raw kline list (ascending by open_time).
         Each element: [open_time, open, high, low, close, volume, close_time,
                        quote_vol, trade_count, taker_buy_vol, taker_buy_quote_vol, ignore]
+
+        end_time : Unix ms upper bound (inclusive). When supplied, returns the
+                   `limit` candles whose open_time <= end_time, enabling
+                   backwards pagination.
         """
-        return self._get("/api/v3/klines", {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit,
-        })
+        params: dict = {"symbol": symbol, "interval": interval, "limit": limit}
+        if end_time is not None:
+            params["endTime"] = end_time
+        return self._get("/api/v3/klines", params)
 
     def get_ticker_price(self, symbol: str) -> float:
         return float(self._get("/api/v3/ticker/price", {"symbol": symbol})["price"])
@@ -470,30 +479,36 @@ class MEXCSpotAPI:
     def get_symbol_info(self, symbol: str) -> Dict:
         """
         Returns a normalised dict with precision and filter values for a symbol.
+        Uses _extract_symbols_list so the response is searched correctly regardless
+        of whether MEXC returns data under "symbols", "data", or another key.
         Falls back to safe defaults if the exchange info call fails.
         """
         try:
             info = self.get_exchange_info(symbol)
-            for sym in info.get("symbols", []):
-                if sym["symbol"] == symbol:
-                    result = {
-                        "base_precision": sym.get("baseAssetPrecision", 8),
-                        "quote_precision": sym.get("quoteAssetPrecision", 8),
-                        "min_qty": 0.0,
-                        "qty_step": 0.0,
-                        "min_notional": 5.0,
-                        "tick_size": 0.0,
-                    }
-                    for f in sym.get("filters", []):
-                        ft = f.get("filterType", "")
-                        if ft == "LOT_SIZE":
-                            result["min_qty"] = float(f.get("minQty", 0))
-                            result["qty_step"] = float(f.get("stepSize", 0))
-                        elif ft == "MIN_NOTIONAL":
-                            result["min_notional"] = float(f.get("minNotional", 5))
-                        elif ft == "PRICE_FILTER":
-                            result["tick_size"] = float(f.get("tickSize", 0))
-                    return result
+            symbols_list = self._extract_symbols_list(info)
+            for sym in symbols_list:
+                if not isinstance(sym, dict):
+                    continue
+                if sym.get("symbol") != symbol:
+                    continue
+                result = {
+                    "base_precision": sym.get("baseAssetPrecision", 8),
+                    "quote_precision": sym.get("quoteAssetPrecision", 8),
+                    "min_qty": 0.0,
+                    "qty_step": 0.0,
+                    "min_notional": 5.0,
+                    "tick_size": 0.0,
+                }
+                for f in sym.get("filters", []):
+                    ft = f.get("filterType", "")
+                    if ft == "LOT_SIZE":
+                        result["min_qty"]  = float(f.get("minQty",    0))
+                        result["qty_step"] = float(f.get("stepSize",   0))
+                    elif ft == "MIN_NOTIONAL":
+                        result["min_notional"] = float(f.get("minNotional", 5))
+                    elif ft == "PRICE_FILTER":
+                        result["tick_size"] = float(f.get("tickSize",  0))
+                return result
         except Exception:
             pass
         return {

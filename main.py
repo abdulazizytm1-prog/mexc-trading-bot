@@ -79,6 +79,7 @@ def _handle_exit(
     current_price: float,
     api: MEXCSpotAPI,
     risk_mgr: RiskManager,
+    tick_size: float = 0.0,
 ) -> None:
     """
     Execute an exit order.
@@ -86,6 +87,8 @@ def _handle_exit(
     Partial exits (TP1 / TP2) sell the appropriate fraction and update
     position state via risk_mgr.  Full exits (TP3 / STOP_LOSS /
     TAKE_PROFIT) close the remaining quantity and remove the position.
+    tick_size is forwarded to handle_tp1/tp2_hit so they can place the
+    next bracket (TP2/TP3 + updated SL) on the exchange.
     """
     log.info(
         "[%s] EXIT: %s | price=%.6f | entry=%.6f",
@@ -93,20 +96,16 @@ def _handle_exit(
     )
 
     try:
-        # Cancel bracket orders before any market sell to prevent double-execution
-        for oid in (getattr(position, "tp_order_id", None), getattr(position, "sl_order_id", None)):
-            if oid:
-                try:
-                    api.cancel_order(symbol, oid)
-                except MEXCAPIError:
-                    pass  # already filled or cancelled — safe to ignore
+        # Cancel existing bracket before any market sell (prevent double-execution)
+        risk_mgr.cancel_oco_for_position(symbol, api)
 
         if exit_reason == "TP1":
             sell_qty = position.partial_qty(1)
             api.place_market_sell(symbol, sell_qty)
             pnl = (current_price - position.effective_entry) * sell_qty
             risk_mgr.record_closed_pnl(pnl)
-            risk_mgr.handle_tp1_hit(symbol)
+            # Pass api + tick_size so handle_tp1_hit places TP2/BE-SL bracket
+            risk_mgr.handle_tp1_hit(symbol, api, tick_size)
             log.info(
                 "[%s] TP1 hit — sold %.6f (33%%) | partial PnL=%.4f USDT",
                 symbol, sell_qty, pnl,
@@ -117,7 +116,8 @@ def _handle_exit(
             api.place_market_sell(symbol, sell_qty)
             pnl = (current_price - position.effective_entry) * sell_qty
             risk_mgr.record_closed_pnl(pnl)
-            risk_mgr.handle_tp2_hit(symbol)
+            # Pass api + tick_size so handle_tp2_hit places TP3/trail-SL bracket
+            risk_mgr.handle_tp2_hit(symbol, api, tick_size)
             log.info(
                 "[%s] TP2 hit — sold %.6f (33%%) | partial PnL=%.4f USDT | trailing active",
                 symbol, sell_qty, pnl,
@@ -224,11 +224,13 @@ def _handle_entry(
             tp2               = tp2,
             tp3               = tp3,
             open_time         = datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            score             = getattr(signal, "score", 0),
+            score             = int(getattr(signal, "score", 0)),
             entry_atr         = getattr(signal, "atr", 0.0),
         )
         risk_mgr.add_position(position)
-        risk_mgr.place_oco_for_position(symbol)
+        risk_mgr.place_oco_for_position(
+            symbol, api, tp1, safe_sl, sym_info.get("tick_size", 0.0)
+        )
 
         log.info(
             "[%s] BUY %.6f @ %.6f (fill) | SL=%.6f | TP1=%.6f TP2=%.6f TP3=%.6f "
@@ -321,7 +323,10 @@ def run(
                         # Re-fetch position after potential trail update
                         current_pos = risk_mgr.get_position(symbol)
                         if current_pos:
-                            _handle_exit(symbol, current_pos, reason, price, api, risk_mgr)
+                            _handle_exit(
+                                symbol, current_pos, reason, price, api, risk_mgr,
+                                _ensure_sym_info(symbol).get("tick_size", 0.0),
+                            )
                 except MEXCAPIError as exc:
                     log.error("[%s] Error checking exit: %s", symbol, exc)
 
@@ -376,7 +381,9 @@ def run(
                 continue
 
             # ── 5b. Global market filter (btc_dom, crash, greed, bias) ─────────
-            market_ok = check_global_market(market_ctx.get_context())
+            _tf = getattr(config, "PRIMARY_TIMEFRAME", "60m").lower()
+            _trade_type = "swing" if _tf in ("4h", "1d") else "daytrading"
+            market_ok = check_global_market(market_ctx.get_context(), _trade_type)
             if not market_ok["tradeable"]:
                 log.info("[MarketFilter] %s", market_ok["reason"])
                 time.sleep(config.LOOP_INTERVAL_SECONDS)

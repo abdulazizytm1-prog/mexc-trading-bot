@@ -1,0 +1,2 @@
+symbol,entry_time,exit_time,entry_price,sl,tp1,tp2,tp3,exit_type,pnl_r,score,duration_h
+ETHUSDT,2026-04-10 03:00:00,2026-04-13 23:00:00,2189.0,2123.33,2254.67,2320.34,2386.01,TP3,1.75,8.55,92
