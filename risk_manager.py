@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -51,7 +52,7 @@ from config import (
 
 log = logging.getLogger(__name__)
 
-_POSITIONS_PATH   = Path(__file__).parent / "positions.json"
+_POSITIONS_PATH   = Path(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", str(Path(__file__).parent))) / "positions.json"
 
 _FEE_PCT          = 0.001    # 0.1% break-even SL buffer (entry + fees)
 _MAX_SL_PCT       = 0.03     # SL hard cap: never more than 3% from entry

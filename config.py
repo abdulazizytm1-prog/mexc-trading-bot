@@ -172,9 +172,9 @@ VWAP_SD2_UPPER_PENALTY  = 0.15    # penalty at extreme premium (above SD2 upper)
 AVWAP_CONFLUENCE_BONUS  = 0.12    # bonus when AVWAP aligns with OTE zone
 
 # ── Signal Gate ──────────────────────────────────────────────────────────── #
-MIN_SIGNAL_SCORE        = 5       # minimum confluence score (0 – 10) to pass strategy filter
+MIN_SIGNAL_SCORE        = 6       # minimum confluence score (0 – 10) to pass strategy filter
 
 # ── Execution Gate ────────────────────────────────────────────────────────── #
 USE_CLAUDE_GATE         = False   # True  → require Anthropic API approval per signal
                                   # False → execute automatically when score ≥ EXECUTE_SCORE
-EXECUTE_SCORE           = 8.0     # auto-execute threshold when USE_CLAUDE_GATE = False
+EXECUTE_SCORE           = 6.0     # auto-execute threshold when USE_CLAUDE_GATE = False

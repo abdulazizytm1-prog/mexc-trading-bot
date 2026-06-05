@@ -1,7 +1,14 @@
+# MEXC Trading Bot — Python dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ─────────────────────────────────────────────────────────────────────
 requests>=2.31.0
 pandas>=2.0.0
 numpy>=1.24.0
 python-dotenv>=1.0.0
-mcp>=1.0.0
 websockets>=12.0
-anthropic>=0.20.0
+
+# ── Optional: Claude AI gate ──────────────────────────────────────────────────
+# Only required when USE_CLAUDE_GATE=True in config.py.
+# Currently disabled (USE_CLAUDE_GATE=False) — comment out to save ~50 MB.
+# anthropic>=0.20.0

@@ -1,0 +1,50 @@
+# /etc/systemd/system/mexc-bot.service
+#
+# Systemd unit for the MEXC Python trading bot.
+# Preferred over screen for production — auto-restarts on crash,
+# survives reboots, and integrates with journald logging.
+#
+# Install (run as root):
+#   cp deploy/mexc-bot.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now mexc-bot
+#
+# Useful commands:
+#   systemctl status  mexc-bot        — current state
+#   systemctl restart mexc-bot        — restart
+#   journalctl -u mexc-bot -f         — live logs (journald)
+#   tail -f /opt/mexc-trading-bot/claude_trader.log   — flat log file
+
+[Unit]
+Description=MEXC SMC Trading Bot
+Documentation=https://github.com/your/repo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/opt/mexc-trading-bot
+
+# Use venv Python; -u disables buffering so logs appear in real time
+ExecStart=/opt/mexc-trading-bot/venv/bin/python3 -u /opt/mexc-trading-bot/claude_trader.py
+
+# Restart policy: restart 5s after any crash
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Flat-file logs (in addition to journald)
+StandardOutput=append:/opt/mexc-trading-bot/claude_trader.log
+StandardError=append:/opt/mexc-trading-bot/error.log
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/mexc-trading-bot
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
