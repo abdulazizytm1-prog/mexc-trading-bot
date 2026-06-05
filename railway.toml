@@ -2,6 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python3 main.py"
+startCommand = "python3.11 main.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
