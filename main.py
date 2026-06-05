@@ -72,6 +72,72 @@ def _is_active_session() -> bool:
     return london or ny
 
 
+def _compute_rsi(klines: list, period: int = 14) -> float:
+    """Simple RSI from raw MEXC klines. Returns 0.0 on insufficient data."""
+    closes = [float(k[4]) for k in klines]
+    if len(closes) < period + 1:
+        return 0.0
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    gains  = [max(d, 0.0) for d in deltas]
+    losses = [max(-d, 0.0) for d in deltas]
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
+def _check_advanced_exits(
+    symbol: str,
+    position: Position,
+    api: MEXCSpotAPI,
+    market_ctx: MarketContextPoller,
+    current_price: float,
+) -> Optional[str]:
+    """
+    Additional safety exits beyond SL/TP:
+      BTC_BEARISH — market regime is BEAR → full close (100%)
+      TIME_STALL  — position open > 12H and PnL < 0 → partial close (50%)
+      RSI_HIGH    — RSI(14) > 75 on primary TF → partial close (50%)
+    Checked in priority order. Returns exit reason or None.
+    """
+    # 1. BTC / market structure BEARISH — no API call required
+    ctx = market_ctx.get_context()
+    if ctx is not None and getattr(ctx, "regime", "") == "BEAR":
+        log.info("[%s] Market regime=BEAR — BTC_BEARISH exit triggered", symbol)
+        return "BTC_BEARISH"
+
+    # 2. Time stall: position open > 12H while underwater
+    if position.open_time:
+        try:
+            open_dt = datetime.fromisoformat(position.open_time)
+            if open_dt.tzinfo is None:
+                open_dt = open_dt.replace(tzinfo=timezone.utc)
+            age_h = (datetime.now(timezone.utc) - open_dt).total_seconds() / 3600
+            pnl   = (current_price - position.effective_entry) * position.remaining_qty()
+            if age_h > 12 and pnl < 0:
+                log.info(
+                    "[%s] TIME_STALL — open %.1fh | PnL=%.4f USDT", symbol, age_h, pnl
+                )
+                return "TIME_STALL"
+        except Exception as exc:
+            log.debug("[%s] TIME_STALL check failed: %s", symbol, exc)
+
+    # 3. RSI overbought — requires one extra kline call
+    try:
+        klines = api.get_klines(symbol, config.PRIMARY_TIMEFRAME, 30)
+        if klines:
+            rsi = _compute_rsi(klines)
+            if rsi > 75:
+                log.info("[%s] RSI=%.1f > 75 — RSI_HIGH exit triggered", symbol, rsi)
+                return "RSI_HIGH"
+    except Exception as exc:
+        log.debug("[%s] RSI check failed: %s", symbol, exc)
+
+    return None
+
+
 def _handle_exit(
     symbol: str,
     position: Position,
@@ -122,6 +188,42 @@ def _handle_exit(
                 "[%s] TP2 hit — sold %.6f (33%%) | partial PnL=%.4f USDT | trailing active",
                 symbol, sell_qty, pnl,
             )
+
+        elif exit_reason == "BTC_BEARISH":
+            # Full close — market structure turned bearish
+            remaining = position.remaining_qty()
+            if remaining <= 0:
+                remaining = position.quantity
+            api.place_market_sell(symbol, remaining)
+            pnl = (current_price - position.effective_entry) * remaining
+            risk_mgr.record_closed_pnl(pnl)
+            risk_mgr.remove_position(symbol)
+            log.info(
+                "[%s] BTC_BEARISH — fully closed %.6f @ %.6f | PnL=%.4f USDT | "
+                "Daily=%.2f%% | Weekly=%.2f%%",
+                symbol, remaining, current_price, pnl,
+                risk_mgr.daily_loss_pct(), risk_mgr.weekly_loss_pct(),
+            )
+
+        elif exit_reason in ("RSI_HIGH", "TIME_STALL"):
+            # Partial close — sell 50% of remaining qty, keep position open
+            remaining = position.remaining_qty()
+            if remaining <= 0:
+                remaining = position.quantity
+            sell_qty = round(remaining * 0.50, 8)
+            if sell_qty > 0:
+                api.place_market_sell(symbol, sell_qty)
+                pnl = (current_price - position.effective_entry) * sell_qty
+                risk_mgr.record_closed_pnl(pnl)
+                # Reduce stored quantity so remaining_qty() is correct going forward
+                live_pos = risk_mgr.get_position(symbol)
+                if live_pos:
+                    live_pos.quantity = max(round(live_pos.quantity - sell_qty, 8), 0.0)
+                    risk_mgr.save_positions()
+                log.info(
+                    "[%s] %s — sold 50%% (%.6f) @ %.6f | PnL=%.4f USDT",
+                    symbol, exit_reason, sell_qty, current_price, pnl,
+                )
 
         else:
             # TP3, STOP_LOSS, TAKE_PROFIT (legacy) → full close of remaining qty
@@ -319,6 +421,8 @@ def run(
                         risk_mgr.update_trailing_stop(symbol, price, position.entry_atr)
 
                     reason = risk_mgr.check_exit(symbol, price)
+                    if not reason:
+                        reason = _check_advanced_exits(symbol, position, api, market_ctx, price)
                     if reason:
                         # Re-fetch position after potential trail update
                         current_pos = risk_mgr.get_position(symbol)
@@ -483,10 +587,10 @@ def run(
                     if signal is None:
                         continue
 
-                    if signal.strength < 0.65:
+                    if signal.score < config.EXECUTE_SCORE:
                         log.debug(
-                            "[%s] Signal strength %.2f < 0.65 — skipped.",
-                            symbol, signal.strength,
+                            "[%s] Signal score %.2f < %.1f — skipped.",
+                            symbol, signal.score, config.EXECUTE_SCORE,
                         )
                         continue
 
