@@ -1,13 +1,7 @@
 [build]
 builder = "nixpacks"
 
-[build.nixpacksPlan.phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
-
 [deploy]
 startCommand = "python3 main.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
-
-[start]
-cmd = "python3 main.py"
