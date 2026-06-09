@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+import config
+
 log = logging.getLogger(__name__)
 
 # ── Correlation groups (max 1 open per group) ─────────────────────────────
@@ -200,8 +202,8 @@ def check_order_book(symbol: str, entry_price: float, mexc_api: Any) -> Dict[str
     Verifies the order book is deep enough to enter cleanly.
 
     Rejects if:
-      • Spread (best_ask − best_bid) / best_bid > 0.15 %
-      • Total bid depth within 0.5 % of entry_price < $10,000
+      • Spread (best_ask − best_bid) / best_bid > ORDER_BOOK_MAX_SPREAD_PCT
+      • Total bid depth within 0.5 % of entry_price < ORDER_BOOK_MIN_BID_DEPTH
 
     On any API failure returns liquid_enough=True (fail-open — the trade
     is already gated by all other filters; don't add fragility here).
@@ -234,14 +236,16 @@ def check_order_book(symbol: str, entry_price: float, mexc_api: Any) -> Dict[str
         return {"liquid_enough": False, "spread_pct": 0.0, "reason": "invalid bid price"}
 
     spread_pct = (best_ask - best_bid) / best_bid * 100.0
+    max_spread_pct = getattr(config, "ORDER_BOOK_MAX_SPREAD_PCT", 0.003) * 100.0
 
-    if spread_pct > 0.15:
+    if spread_pct > max_spread_pct:
         return {
             "liquid_enough": False,
             "spread_pct": round(spread_pct, 4),
-            "reason": f"spread too wide ({spread_pct:.3f}% > 0.15%)",
+            "reason": f"spread too wide ({spread_pct:.3f}% > {max_spread_pct:.3f}%)",
         }
 
+    min_depth = getattr(config, "ORDER_BOOK_MIN_BID_DEPTH", 1000)
     price_floor   = entry_price * 0.995
     bid_depth_usd = sum(
         float(b[0]) * float(b[1])
@@ -249,11 +253,11 @@ def check_order_book(symbol: str, entry_price: float, mexc_api: Any) -> Dict[str
         if float(b[0]) >= price_floor
     )
 
-    if bid_depth_usd < 10_000:
+    if bid_depth_usd < min_depth:
         return {
             "liquid_enough": False,
             "spread_pct": round(spread_pct, 4),
-            "reason": f"bid depth too thin (${bid_depth_usd:,.0f} < $10,000)",
+            "reason": f"bid depth too thin (${bid_depth_usd:,.0f} < ${min_depth:,})",
         }
 
     return {

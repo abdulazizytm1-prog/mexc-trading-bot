@@ -5,8 +5,8 @@ Polls /v2/stats every MARKET_CONTEXT_REFRESH_MIN minutes (default 30).
 Saves snapshot to market_context.json.
 
 Trade gates exposed:
-  is_safe_to_trade()       — False when global market is down > 3% in 24h
-  is_altcoin_restricted()  — True when BTC dominance > 55% (reduce altcoin exposure)
+  is_safe_to_trade()       — False when global market is down > MARKET_DROP_NO_TRADE_PCT in 24h
+  is_altcoin_restricted()  — True when BTC dominance > BTC_DOM_ALTCOIN_RESTRICT
   get_context()            — returns the latest MarketContext snapshot
 
 Thread-safety: polling runs in a background daemon thread; reads are lock-protected.
@@ -34,9 +34,9 @@ _CONTEXT_PATH = Path(__file__).parent / "market_context.json"
 _REFRESH_MIN: int = getattr(config, "MARKET_CONTEXT_REFRESH_HOURS", 0) * 60 or \
                     getattr(config, "MARKET_CONTEXT_REFRESH_MIN", 30)
 
-# Thresholds
-_BTC_DOM_ALTCOIN_RESTRICT = 55.0   # BTC dominance above this → reduce altcoin trades
-_MARKET_DROP_NO_TRADE     = -3.0   # global 24h change below this → no new entries
+# Thresholds — read from config so a single edit propagates everywhere
+_BTC_DOM_ALTCOIN_RESTRICT: float = getattr(config, "BTC_DOM_ALTCOIN_RESTRICT", 65.0)
+_MARKET_DROP_NO_TRADE:     float = getattr(config, "MARKET_DROP_NO_TRADE_PCT",  -3.0)
 
 # Coinranking UUID for Bitcoin (used for 7-day price history)
 _BTC_UUID = "Qwsogvtv82FCd"
@@ -238,7 +238,7 @@ class MarketContextPoller:
 
     def is_altcoin_restricted(self) -> bool:
         """
-        Returns True when BTC dominance exceeds _BTC_DOM_ALTCOIN_RESTRICT (55%).
+        Returns True when BTC dominance exceeds config.BTC_DOM_ALTCOIN_RESTRICT.
         Caller should reduce the number of altcoin entries when this is True.
         """
         with self._lock:

@@ -62,7 +62,7 @@ LOOP_INTERVAL_SECONDS = 60  # Main loop cadence in seconds
 
 # Market context (Coinranking /v2/stats polling)
 MARKET_CONTEXT_REFRESH_MIN = 30    # Poll /v2/stats every N minutes
-BTC_DOM_ALTCOIN_RESTRICT   = 55.0  # BTC dominance % above which altcoin entries are reduced
+BTC_DOM_ALTCOIN_RESTRICT   = 65.0  # BTC dominance % above which altcoin entries are reduced (daytrading)
 MARKET_DROP_NO_TRADE_PCT   = -3.0  # Global 24h mcap change below which no new entries open
 
 # HTF bias filter
@@ -178,3 +178,7 @@ MIN_SIGNAL_SCORE        = 6       # minimum confluence score (0 – 10) to pass 
 USE_CLAUDE_GATE         = False   # True  → require Anthropic API approval per signal
                                   # False → execute automatically when score ≥ EXECUTE_SCORE
 EXECUTE_SCORE           = 6.0     # auto-execute threshold when USE_CLAUDE_GATE = False
+
+# ── Order Book Liquidity Gate ─────────────────────────────────────────────── #
+ORDER_BOOK_MIN_BID_DEPTH  = 1000   # Minimum USD bid depth within 0.5% of entry price
+ORDER_BOOK_MAX_SPREAD_PCT = 0.003  # Maximum bid-ask spread as a ratio (0.003 = 0.3%)
