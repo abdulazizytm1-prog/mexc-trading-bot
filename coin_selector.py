@@ -285,6 +285,7 @@ class CoinSelector:
         self._scores: Dict[str, float]  = {}   # mexc_symbol → 0.0–10.0
         self._coins:  List[ScoredCoin]  = []   # full metadata for dashboard
         self._last_refresh: Optional[datetime] = None
+        self._load_cache()  # skip API call on restart if cache is still fresh
 
     # ── TTL ───────────────────────────────────────────────────────────────────
 
@@ -335,6 +336,85 @@ class CoinSelector:
             log.info("[CoinSelector] Saved %d pairs → %s", len(coins), _ACTIVE_PAIRS_PATH.name)
         except OSError as exc:
             log.warning("[CoinSelector] Could not save active_pairs.json: %s", exc)
+
+    def _load_cache(self) -> bool:
+        """
+        Loads active_pairs.json on startup if it exists and is younger than
+        COIN_SELECTOR_REFRESH_HOURS.  Populates internal state so _is_due()
+        returns False and the Coinranking API is not called until the TTL expires.
+        Returns True if the cache was loaded, False if it was missing or stale.
+        """
+        if not _ACTIVE_PAIRS_PATH.exists():
+            return False
+        try:
+            raw          = json.loads(_ACTIVE_PAIRS_PATH.read_text(encoding="utf-8"))
+            refreshed_at = datetime.fromisoformat(raw["refreshed_at"])
+            age          = datetime.now() - refreshed_at
+            ttl          = timedelta(hours=config.COIN_SELECTOR_REFRESH_HOURS)
+
+            if age >= ttl:
+                log.info(
+                    "[CoinSelector] Cache is %.1fh old (TTL=%.0fh) — will refresh on first call",
+                    age.total_seconds() / 3600, ttl.total_seconds() / 3600,
+                )
+                return False
+
+            pairs:  List[str]        = []
+            scores: Dict[str, float] = {}
+            coins:  List[ScoredCoin] = []
+
+            for p in raw.get("pairs", []):
+                sym = p["mexc_symbol"]
+                pairs.append(sym)
+                scores[sym] = float(p.get("score", 0))
+
+                bd_raw = p.get("score_breakdown", {})
+                bd = ScoreBreakdown(
+                    mcap      = bd_raw.get("mcap",      0),
+                    volume    = bd_raw.get("volume",    0),
+                    exchanges = bd_raw.get("exchanges", 0),
+                    stability = bd_raw.get("stability", 0),
+                    supply    = bd_raw.get("supply",    0),
+                    narrative = bd_raw.get("narrative", 0),
+                    tier      = bd_raw.get("tier",      0),
+                    sparkline = bd_raw.get("sparkline", 0),
+                )
+                coins.append(ScoredCoin(
+                    mexc_symbol = sym,
+                    symbol      = p.get("symbol",       sym.replace("USDT", "")),
+                    name        = p.get("name",         sym),
+                    uuid        = p.get("uuid",         ""),
+                    score       = int(p.get("score",    0)),
+                    breakdown   = bd,
+                    tier        = int(p.get("tier",     2)),
+                    market_cap  = float(p.get("market_cap_usd", 0)),
+                    volume_24h  = float(p.get("volume_24h_usd", 0)),
+                    change_24h  = float(p.get("change_24h_pct", 0)),
+                    price_usd   = float(p.get("price_usd",      0)),
+                    n_exchanges = int(p.get("n_exchanges",       0)),
+                    tags        = p.get("tags",          []),
+                    weekly_up   = bool(p.get("weekly_uptrend", False)),
+                ))
+
+            with self._lock:
+                self._coins        = coins
+                self._pairs        = pairs
+                self._scores       = scores
+                self._last_refresh = refreshed_at
+
+            remaining = ttl - age
+            log.info(
+                "[CoinSelector] Loaded %d pairs from cache "
+                "(age=%.1fh, next refresh in %.0fm)",
+                len(pairs),
+                age.total_seconds() / 3600,
+                remaining.total_seconds() / 60,
+            )
+            return True
+
+        except Exception as exc:
+            log.warning("[CoinSelector] Could not load cache: %s — will refresh", exc)
+            return False
 
     # ── Full refresh ──────────────────────────────────────────────────────────
 
