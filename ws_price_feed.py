@@ -79,6 +79,10 @@ class WSPriceFeed:
         self._snap15:    Dict[str, float] = {}   # cr_uuid → price at snapshot
         self._snap15_ts: float            = 0.0  # Unix timestamp of last snapshot
 
+        # 403 circuit-breaker — shared across both streams (same API key)
+        self._403_strikes: int  = 0     # consecutive 403 errors
+        self._banned:      bool = False  # True after 3 strikes — caller must use REST
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_uuid_map(self, uuid_map: Dict[str, str]) -> None:
@@ -140,6 +144,10 @@ class WSPriceFeed:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def is_healthy(self) -> bool:
+        """False after 3 consecutive HTTP 403s. Caller should switch to REST price data."""
+        return not self._banned
+
     def _maybe_refresh_snapshots(self) -> None:
         """Takes a 15-min price snapshot. Called on every rate tick — cheap."""
         now = time.time()
@@ -180,6 +188,9 @@ class WSPriceFeed:
 
     async def _main(self) -> None:
         while not self._stop.is_set():
+            if self._banned:
+                log.warning("[WSFeed] HTTP 403 ban active — WebSocket feed stopped. Bot using REST fallback.")
+                return
             uuids = list(self._uuid_map.values())
             if not uuids:
                 await asyncio.sleep(5)
@@ -190,6 +201,8 @@ class WSPriceFeed:
                     self._connect_tickers(uuids),
                 )
             except Exception as exc:
+                if self._banned:
+                    return
                 log.error("[WSFeed] Connection error: %s — reconnecting in %ds", exc, _RECONNECT_S)
                 await asyncio.sleep(_RECONNECT_S)
 
@@ -208,8 +221,11 @@ class WSPriceFeed:
         log.debug("[WSFeed/rates] Connecting to %s/rates", _WS_BASE)
 
         while not self._stop.is_set():
+            if self._banned:
+                return
             try:
                 async with websockets.connect(url) as ws:
+                    self._403_strikes = 0   # successful handshake resets the counter
                     await ws.send(subscribe_msg)
                     log.info("[WSFeed/rates] Connected (%d uuids)", len(uuids))
                     async for raw in ws:
@@ -217,8 +233,23 @@ class WSPriceFeed:
                             return
                         self._handle_rate(raw)
             except Exception as exc:
+                if self._stop.is_set():
+                    return
                 exc_str = str(exc).replace(api_key, "***") if api_key else str(exc)
-                log.warning("[WSFeed/rates] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
+                if "403" in str(exc) or "forbidden" in str(exc).lower():
+                    self._403_strikes += 1
+                    if self._403_strikes >= 3:
+                        self._banned = True
+                        log.warning(
+                            "[WSFeed/rates] HTTP 403 received %d times in a row — "
+                            "stopping WebSocket retries. Bot will use REST API for prices.",
+                            self._403_strikes,
+                        )
+                        return
+                    log.warning("[WSFeed/rates] HTTP 403 (%d/3) — retry in %ds", self._403_strikes, _RECONNECT_S)
+                else:
+                    self._403_strikes = 0
+                    log.warning("[WSFeed/rates] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
                 await asyncio.sleep(_RECONNECT_S)
 
     def _handle_rate(self, raw: str) -> None:
@@ -247,8 +278,11 @@ class WSPriceFeed:
         log.debug("[WSFeed/tickers] Connecting to %s/tickers", _WS_BASE)
 
         while not self._stop.is_set():
+            if self._banned:
+                return
             try:
                 async with websockets.connect(url) as ws:
+                    self._403_strikes = 0   # successful handshake resets the counter
                     await ws.send(subscribe_msg)
                     log.info("[WSFeed/tickers] Connected (%d uuids)", len(uuids))
                     async for raw in ws:
@@ -256,8 +290,23 @@ class WSPriceFeed:
                             return
                         self._handle_ticker(raw)
             except Exception as exc:
+                if self._stop.is_set():
+                    return
                 exc_str = str(exc).replace(api_key, "***") if api_key else str(exc)
-                log.warning("[WSFeed/tickers] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
+                if "403" in str(exc) or "forbidden" in str(exc).lower():
+                    self._403_strikes += 1
+                    if self._403_strikes >= 3:
+                        self._banned = True
+                        log.warning(
+                            "[WSFeed/tickers] HTTP 403 received %d times in a row — "
+                            "stopping WebSocket retries. Bot will use REST API for prices.",
+                            self._403_strikes,
+                        )
+                        return
+                    log.warning("[WSFeed/tickers] HTTP 403 (%d/3) — retry in %ds", self._403_strikes, _RECONNECT_S)
+                else:
+                    self._403_strikes = 0
+                    log.warning("[WSFeed/tickers] Disconnected: %s — retry in %ds", exc_str, _RECONNECT_S)
                 await asyncio.sleep(_RECONNECT_S)
 
     def _handle_ticker(self, raw: str) -> None:
