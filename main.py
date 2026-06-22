@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 
 import config
 from coin_selector import CoinSelector
@@ -35,11 +36,16 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.StreamHandler(),
+        logging.StreamHandler(sys.stdout),   # stdout so Railway logs INFO as info, not error
         logging.FileHandler("trading_bot.log", encoding="utf-8"),
     ],
 )
 log = logging.getLogger(__name__)
+
+# Exit-attempt cooldown: after a failed/aborted exit, wait this many seconds
+# before retrying to prevent repeated sell spam on the same position.
+_EXIT_COOLDOWN_SECS: int = 300
+_exit_cooldown_until: Dict[str, float] = {}   # symbol → unix timestamp
 
 
 # ------------------------------------------------------------------ #
@@ -138,6 +144,51 @@ def _check_advanced_exits(
     return None
 
 
+def _safe_market_sell(
+    symbol: str,
+    qty: float,
+    api: MEXCSpotAPI,
+    risk_mgr: RiskManager,
+) -> bool:
+    """
+    Fetch the free base-asset balance, clamp qty to it, then place a market sell.
+    Returns True on success.  Returns False (and marks position needs_reconcile)
+    when the free balance is zero or the order fails — caller should set cooldown.
+    """
+    base = symbol[:-4] if symbol.endswith("USDT") else symbol
+    try:
+        bal  = api.get_balance(base)
+        free = bal["free"]
+    except Exception as exc:
+        log.error(
+            "[%s] Cannot fetch %s balance before sell: %s — aborting sell",
+            symbol, base, exc,
+        )
+        return False
+
+    if free <= 0:
+        log.warning(
+            "[%s] Free %s balance is %.8f — no sellable quantity. "
+            "Marking position needs_reconcile.",
+            symbol, base, free,
+        )
+        pos = risk_mgr.get_position(symbol)
+        if pos:
+            pos.status = "needs_reconcile"
+            risk_mgr.save_positions()
+        return False
+
+    if qty > free:
+        log.warning(
+            "[%s] Requested sell qty %.8f > free balance %.8f — clamping.",
+            symbol, qty, free,
+        )
+        qty = free
+
+    api.place_market_sell(symbol, qty)
+    return True
+
+
 def _handle_exit(
     symbol: str,
     position: Position,
@@ -146,31 +197,52 @@ def _handle_exit(
     api: MEXCSpotAPI,
     risk_mgr: RiskManager,
     tick_size: float = 0.0,
-) -> None:
+) -> bool:
     """
-    Execute an exit order.
+    Execute an exit order.  Returns True on success, False when the exit was
+    aborted for safety (caller should apply exit cooldown to the symbol).
 
-    Partial exits (TP1 / TP2) sell the appropriate fraction and update
-    position state via risk_mgr.  Full exits (TP3 / STOP_LOSS /
-    TAKE_PROFIT) close the remaining quantity and remove the position.
-    tick_size is forwarded to handle_tp1/tp2_hit so they can place the
-    next bracket (TP2/TP3 + updated SL) on the exchange.
+    Safety gates (checked in order):
+      1. DRY_RUN — log intent, skip all orders, return True.
+      2. OCO cancel confirmation — if cancel fails with live IDs, abort to
+         prevent double-execution (exchange bracket + market sell).
+      3. Balance check — fetch free base-asset balance before every sell;
+         clamp qty or abort if balance is zero.
     """
+    if config.DRY_RUN:
+        log.info(
+            "[DRY-RUN] Would exit %s (%s) @ %.6f | entry=%.6f",
+            symbol, exit_reason, current_price, position.effective_entry,
+        )
+        return True
+
     log.info(
         "[%s] EXIT: %s | price=%.6f | entry=%.6f",
         symbol, exit_reason, current_price, position.effective_entry,
     )
 
     try:
-        # Cancel existing bracket before any market sell (prevent double-execution)
-        risk_mgr.cancel_oco_for_position(symbol, api)
+        # ── Gate 1: Cancel bracket — must succeed before any market sell ──────
+        had_bracket = bool(position.tp_order_id or position.sl_order_id)
+        cancel_ok   = risk_mgr.cancel_oco_for_position(symbol, api)
 
+        if not cancel_ok and had_bracket:
+            log.warning(
+                "[%s] OCO cancel failed with active bracket orders — aborting %s "
+                "exit to prevent double-execution. Marking needs_reconcile.",
+                symbol, exit_reason,
+            )
+            position.status = "needs_reconcile"
+            risk_mgr.save_positions()
+            return False
+
+        # ── Execute per exit reason ────────────────────────────────────────────
         if exit_reason == "TP1":
             sell_qty = position.partial_qty(1)
-            api.place_market_sell(symbol, sell_qty)
+            if not _safe_market_sell(symbol, sell_qty, api, risk_mgr):
+                return False
             pnl = (current_price - position.effective_entry) * sell_qty
             risk_mgr.record_closed_pnl(pnl)
-            # Pass api + tick_size so handle_tp1_hit places TP2/BE-SL bracket
             risk_mgr.handle_tp1_hit(symbol, api, tick_size)
             log.info(
                 "[%s] TP1 hit — sold %.6f (33%%) | partial PnL=%.4f USDT",
@@ -179,10 +251,10 @@ def _handle_exit(
 
         elif exit_reason == "TP2":
             sell_qty = position.partial_qty(2)
-            api.place_market_sell(symbol, sell_qty)
+            if not _safe_market_sell(symbol, sell_qty, api, risk_mgr):
+                return False
             pnl = (current_price - position.effective_entry) * sell_qty
             risk_mgr.record_closed_pnl(pnl)
-            # Pass api + tick_size so handle_tp2_hit places TP3/trail-SL bracket
             risk_mgr.handle_tp2_hit(symbol, api, tick_size)
             log.info(
                 "[%s] TP2 hit — sold %.6f (33%%) | partial PnL=%.4f USDT | trailing active",
@@ -190,11 +262,9 @@ def _handle_exit(
             )
 
         elif exit_reason == "BTC_BEARISH":
-            # Full close — market structure turned bearish
-            remaining = position.remaining_qty()
-            if remaining <= 0:
-                remaining = position.quantity
-            api.place_market_sell(symbol, remaining)
+            remaining = position.remaining_qty() or position.quantity
+            if not _safe_market_sell(symbol, remaining, api, risk_mgr):
+                return False
             pnl = (current_price - position.effective_entry) * remaining
             risk_mgr.record_closed_pnl(pnl)
             risk_mgr.remove_position(symbol)
@@ -206,18 +276,15 @@ def _handle_exit(
             )
 
         elif exit_reason in ("RSI_HIGH", "TIME_STALL"):
-            # Partial close — sell 50% of remaining qty, keep position open
-            remaining = position.remaining_qty()
-            if remaining <= 0:
-                remaining = position.quantity
-            sell_qty = round(remaining * 0.50, 8)
+            remaining = position.remaining_qty() or position.quantity
+            sell_qty  = round(remaining * 0.50, 8)
             if sell_qty > 0:
-                api.place_market_sell(symbol, sell_qty)
+                if not _safe_market_sell(symbol, sell_qty, api, risk_mgr):
+                    return False
                 pnl = (current_price - position.effective_entry) * sell_qty
                 risk_mgr.record_closed_pnl(pnl)
-                # Reduce stored quantity so remaining_qty() is correct going forward
                 live_pos = risk_mgr.get_position(symbol)
-                if live_pos:
+                if live_pos and live_pos.status == "active":
                     live_pos.quantity = max(round(live_pos.quantity - sell_qty, 8), 0.0)
                     risk_mgr.save_positions()
                 log.info(
@@ -226,11 +293,10 @@ def _handle_exit(
                 )
 
         else:
-            # TP3, STOP_LOSS, TAKE_PROFIT (legacy) → full close of remaining qty
-            remaining = position.remaining_qty()
-            if remaining <= 0:
-                remaining = position.quantity
-            api.place_market_sell(symbol, remaining)
+            # TP3, STOP_LOSS, TAKE_PROFIT (legacy) — full close of remaining qty
+            remaining = position.remaining_qty() or position.quantity
+            if not _safe_market_sell(symbol, remaining, api, risk_mgr):
+                return False
             pnl = (current_price - position.effective_entry) * remaining
             risk_mgr.record_closed_pnl(pnl)
             risk_mgr.remove_position(symbol)
@@ -242,8 +308,11 @@ def _handle_exit(
                 risk_mgr.weekly_loss_pct(),
             )
 
+        return True
+
     except MEXCAPIError as exc:
         log.error("[%s] Failed to execute exit (%s): %s", symbol, exit_reason, exc)
+        return False
 
 
 def _handle_entry(
@@ -261,6 +330,14 @@ def _handle_entry(
     """
     symbol     = signal.symbol
     is_friday  = signal.kill_zone == "FRIDAY_REDUCED"
+
+    if config.DRY_RUN:
+        log.info(
+            "[DRY-RUN] Would BUY %s @ %.6f | SL=%.6f | score=%d/10 | zone=%s",
+            symbol, signal.entry_price, signal.stop_loss,
+            getattr(signal, "score", 0), signal.zone_type,
+        )
+        return None
 
     # Fresh balance for accurate percentage-based sizing
     try:
@@ -371,10 +448,25 @@ def run(
 
     sym_info_cache: dict = {}
 
-    def _ensure_sym_info(symbol: str) -> dict:
+    def _ensure_sym_info(symbol: str) -> Optional[dict]:
+        """Returns symbol metadata dict, or None if the symbol is invalid/delisted."""
         if symbol not in sym_info_cache:
             try:
                 sym_info_cache[symbol] = api.get_symbol_info(symbol)
+            except MEXCAPIError as exc:
+                if exc.code == -1121 or "not found" in str(exc).lower():
+                    log.error(
+                        "[%s] Symbol not found on MEXC — quarantining position.", symbol,
+                    )
+                    risk_mgr.quarantine_position(symbol, "invalid_symbol")
+                    sym_info_cache[symbol] = None
+                else:
+                    log.warning("Could not fetch symbol info for %s: %s", symbol, exc)
+                    sym_info_cache[symbol] = {
+                        "base_precision": 6, "quote_precision": 2,
+                        "min_qty": 0.0, "qty_step": 0.0,
+                        "min_notional": 5.0, "tick_size": 0.0,
+                    }
             except Exception as exc:
                 log.warning("Could not fetch symbol info for %s: %s", symbol, exc)
                 sym_info_cache[symbol] = {
@@ -409,9 +501,17 @@ def run(
                 continue
 
             # -------------------------------------------------------- #
-            #  1. Check ALL open positions for exit + trail update      #
+            #  1. Check ACTIVE positions for exit + trail update        #
             # -------------------------------------------------------- #
-            for symbol, position in list(risk_mgr.all_positions().items()):
+            for symbol, position in list(risk_mgr.active_positions().items()):
+                # Skip if within post-failure cooldown window
+                if _exit_cooldown_until.get(symbol, 0.0) > time.time():
+                    log.debug(
+                        "[%s] Exit cooldown active (%.0fs remaining) — skipping.",
+                        symbol,
+                        _exit_cooldown_until[symbol] - time.time(),
+                    )
+                    continue
                 try:
                     ws_price = ws_feed.get_price(symbol)
                     price    = ws_price if ws_price else api.get_ticker_price(symbol)
@@ -424,13 +524,24 @@ def run(
                     if not reason:
                         reason = _check_advanced_exits(symbol, position, api, market_ctx, price)
                     if reason:
-                        # Re-fetch position after potential trail update
                         current_pos = risk_mgr.get_position(symbol)
                         if current_pos:
-                            _handle_exit(
+                            si = _ensure_sym_info(symbol)
+                            if si is None:
+                                # Symbol quarantined mid-loop — skip this cycle
+                                continue
+                            exit_ok = _handle_exit(
                                 symbol, current_pos, reason, price, api, risk_mgr,
-                                _ensure_sym_info(symbol).get("tick_size", 0.0),
+                                si.get("tick_size", 0.0),
                             )
+                            if not exit_ok:
+                                _exit_cooldown_until[symbol] = (
+                                    time.time() + _EXIT_COOLDOWN_SECS
+                                )
+                                log.warning(
+                                    "[%s] Exit aborted — cooldown set for %ds.",
+                                    symbol, _EXIT_COOLDOWN_SECS,
+                                )
                 except MEXCAPIError as exc:
                     log.error("[%s] Error checking exit: %s", symbol, exc)
 
@@ -605,9 +716,10 @@ def run(
                     )
 
                     # ── g. Execute ───────────────────────────────────────────────
-                    cost = _handle_entry(
-                        signal, balance, _ensure_sym_info(symbol), api, risk_mgr
-                    )
+                    si = _ensure_sym_info(symbol)
+                    if si is None:
+                        continue
+                    cost = _handle_entry(signal, balance, si, api, risk_mgr)
                     if cost:
                         balance -= cost
                         entries_this_cycle += 1
@@ -651,12 +763,35 @@ def main() -> None:
         log.error("MEXC connectivity check failed: %s", exc)
         return
 
+    if config.DRY_RUN:
+        log.info(
+            "*** DRY-RUN MODE — no real orders will be placed. "
+            "Set LIVE_TRADING=true in .env to enable live execution. ***"
+        )
+    else:
+        log.warning(
+            "*** LIVE TRADING ENABLED — real orders will be placed on MEXC. ***"
+        )
+
     risk_mgr      = RiskManager()
     coin_selector = CoinSelector(api)
 
     log.info("Building initial pair list (Coinranking + MEXC cross-reference)…")
     initial_pairs = coin_selector.get_pairs()
     log.info("Trading universe (%d pairs): %s", len(initial_pairs), initial_pairs)
+
+    # ── PATCH 2: Validate persisted positions against current MEXC symbol list ──
+    try:
+        valid_mexc_symbols = api.get_all_usdt_spot_symbols()
+        risk_mgr.validate_positions(valid_mexc_symbols)
+    except Exception as exc:
+        log.warning("Startup symbol validation skipped (MEXC fetch failed): %s", exc)
+
+    # ── PATCH 3: Reconcile local positions with real exchange balances ──────────
+    try:
+        risk_mgr.reconcile_on_startup(api)
+    except Exception as exc:
+        log.warning("Startup reconcile failed: %s", exc)
 
     # Build uuid_map from the first refresh
     uuid_map = {

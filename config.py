@@ -182,3 +182,10 @@ EXECUTE_SCORE           = 6.0     # auto-execute threshold when USE_CLAUDE_GATE 
 # ── Order Book Liquidity Gate ─────────────────────────────────────────────── #
 ORDER_BOOK_MIN_BID_DEPTH  = 1000   # Minimum USD bid depth within 0.5% of entry price
 ORDER_BOOK_MAX_SPREAD_PCT = 0.003  # Maximum bid-ask spread as a ratio (0.003 = 0.3%)
+
+# ── Live execution safety lock ────────────────────────────────────────────── #
+# Default: dry-run (no real orders).  Set LIVE_TRADING=true in .env / Railway
+# env vars to enable live order placement.  All scanning and reporting work
+# unchanged in dry-run mode.
+LIVE_TRADING: bool = os.getenv("LIVE_TRADING", "false").lower() == "true"
+DRY_RUN:      bool = not LIVE_TRADING

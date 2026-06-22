@@ -481,41 +481,39 @@ class MEXCSpotAPI:
         Returns a normalised dict with precision and filter values for a symbol.
         Uses _extract_symbols_list so the response is searched correctly regardless
         of whether MEXC returns data under "symbols", "data", or another key.
-        Falls back to safe defaults if the exchange info call fails.
+
+        Raises MEXCAPIError (code -1121) if the symbol is not found in exchangeInfo.
+        Callers that need a non-fatal fallback must catch MEXCAPIError explicitly.
+        An absent symbol means it is invalid or delisted — silent fallback would
+        allow order placement with wrong precision, which is unsafe.
         """
-        try:
-            info = self.get_exchange_info(symbol)
-            symbols_list = self._extract_symbols_list(info)
-            for sym in symbols_list:
-                if not isinstance(sym, dict):
-                    continue
-                if sym.get("symbol") != symbol:
-                    continue
-                result = {
-                    "base_precision": sym.get("baseAssetPrecision", 8),
-                    "quote_precision": sym.get("quoteAssetPrecision", 8),
-                    "min_qty": 0.0,
-                    "qty_step": 0.0,
-                    "min_notional": 5.0,
-                    "tick_size": 0.0,
-                }
-                for f in sym.get("filters", []):
-                    ft = f.get("filterType", "")
-                    if ft == "LOT_SIZE":
-                        result["min_qty"]  = float(f.get("minQty",    0))
-                        result["qty_step"] = float(f.get("stepSize",   0))
-                    elif ft == "MIN_NOTIONAL":
-                        result["min_notional"] = float(f.get("minNotional", 5))
-                    elif ft == "PRICE_FILTER":
-                        result["tick_size"] = float(f.get("tickSize",  0))
-                return result
-        except Exception:
-            pass
-        return {
-            "base_precision": 6,
-            "quote_precision": 2,
-            "min_qty": 0.0,
-            "qty_step": 0.0,
-            "min_notional": 5.0,
-            "tick_size": 0.0,
-        }
+        info = self.get_exchange_info(symbol)
+        symbols_list = self._extract_symbols_list(info)
+        for sym in symbols_list:
+            if not isinstance(sym, dict):
+                continue
+            if sym.get("symbol") != symbol:
+                continue
+            result = {
+                "base_precision": sym.get("baseAssetPrecision", 8),
+                "quote_precision": sym.get("quoteAssetPrecision", 8),
+                "min_qty": 0.0,
+                "qty_step": 0.0,
+                "min_notional": 5.0,
+                "tick_size": 0.0,
+            }
+            for f in sym.get("filters", []):
+                ft = f.get("filterType", "")
+                if ft == "LOT_SIZE":
+                    result["min_qty"]  = float(f.get("minQty",    0))
+                    result["qty_step"] = float(f.get("stepSize",   0))
+                elif ft == "MIN_NOTIONAL":
+                    result["min_notional"] = float(f.get("minNotional", 5))
+                elif ft == "PRICE_FILTER":
+                    result["tick_size"] = float(f.get("tickSize",  0))
+            return result
+        # Symbol not present in exchangeInfo → invalid or delisted
+        raise MEXCAPIError(
+            -1, -1121,
+            f"{symbol!r} not found in exchangeInfo — symbol is invalid or delisted",
+        )

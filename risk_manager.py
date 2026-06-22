@@ -98,6 +98,12 @@ class Position:
     oco_tp_price: float = 0.0   # TP price the bracket was placed at
     oco_sl_price: float = 0.0   # SL price the bracket was placed at
 
+    # ── Safety status ─────────────────────────────────────────────────
+    # "active"           — normal trading position
+    # "quarantine:<why>" — invalid/delisted symbol; excluded from all loops
+    # "needs_reconcile"  — balance mismatch or failed exit; manual review needed
+    status: str = "active"
+
     # ── Computed helpers ──────────────────────────────────────────────
 
     @property
@@ -154,6 +160,7 @@ def _pos_to_dict(pos: Position) -> dict:
         "sl_order_id":       pos.sl_order_id,
         "oco_tp_price":      pos.oco_tp_price,
         "oco_sl_price":      pos.oco_sl_price,
+        "status":            pos.status,
     }
 
 
@@ -182,6 +189,7 @@ def _pos_from_dict(d: dict) -> Position:
         sl_order_id       = d.get("sl_order_id", ""),
         oco_tp_price      = float(d.get("oco_tp_price", 0)),
         oco_sl_price      = float(d.get("oco_sl_price", 0)),
+        status            = d.get("status", "active"),
     )
 
 
@@ -399,7 +407,8 @@ class RiskManager:
         if symbol in self._positions:
             return False
 
-        if len(self._positions) >= MAX_OPEN_POSITIONS:
+        active_count = sum(1 for p in self._positions.values() if p.status == "active")
+        if active_count >= MAX_OPEN_POSITIONS:
             return False
 
         if self.daily_loss_cap_reached():
@@ -579,8 +588,88 @@ class RiskManager:
     def all_positions(self) -> Dict[str, Position]:
         return dict(self._positions)
 
+    def active_positions(self) -> Dict[str, Position]:
+        """Returns only positions with status == 'active' (excludes quarantined / needs_reconcile)."""
+        return {s: p for s, p in self._positions.items() if p.status == "active"}
+
+    def quarantine_position(self, symbol: str, reason: str) -> None:
+        """
+        Mark a position as quarantined.  It is then excluded from the exit loop,
+        global position limits, and new-entry decisions.  The record is kept in
+        positions.json for audit; nothing is deleted silently.
+        """
+        pos = self._positions.get(symbol)
+        if pos is None or not pos.status.startswith("active"):
+            return
+        pos.status = f"quarantine:{reason}"
+        self.save_positions()
+        log.warning(
+            "[RiskManager] %s quarantined (%s) — excluded from exit loop "
+            "and position limits. Manual review required.",
+            symbol, reason,
+        )
+
+    def validate_positions(self, valid_symbols: set) -> None:
+        """
+        Called at startup with the current MEXC active symbol set.
+        Any persisted position whose symbol is no longer on MEXC is quarantined.
+        """
+        for symbol in list(self._positions.keys()):
+            pos = self._positions[symbol]
+            if pos.status.startswith("quarantine"):
+                continue
+            if symbol not in valid_symbols:
+                log.warning(
+                    "[RiskManager] %s is NOT in current MEXC symbol list — quarantining.",
+                    symbol,
+                )
+                self.quarantine_position(symbol, "invalid_symbol")
+
+    def reconcile_on_startup(self, api: Any) -> None:
+        """
+        Called at startup after validate_positions().
+        For each active position, check if the base asset has any balance on the
+        exchange and if there are any open orders.  If neither is true the local
+        position is a ghost — mark it needs_reconcile so it is excluded from
+        the exit loop and position limits until manually reviewed.
+        """
+        for symbol, pos in list(self._positions.items()):
+            if pos.status != "active":
+                continue
+            base = symbol[:-4] if symbol.endswith("USDT") else symbol
+            try:
+                bal = api.get_balance(base)
+                total = bal["free"] + bal["locked"]
+                if total <= 0:
+                    open_orders = api.get_open_orders(symbol)
+                    if not open_orders:
+                        log.warning(
+                            "[RiskManager] Startup reconcile: %s — no %s balance "
+                            "(%.8f free + %.8f locked) and no open orders → needs_reconcile.",
+                            symbol, base, bal["free"], bal["locked"],
+                        )
+                        pos.status = "needs_reconcile"
+                        self.save_positions()
+                    else:
+                        log.info(
+                            "[RiskManager] Startup reconcile: %s — no %s balance but "
+                            "%d open order(s) found — keeping active.",
+                            symbol, base, len(open_orders),
+                        )
+                else:
+                    log.info(
+                        "[RiskManager] Startup reconcile: %s — %s balance OK "
+                        "(%.8f free + %.8f locked).",
+                        symbol, base, bal["free"], bal["locked"],
+                    )
+            except Exception as exc:
+                log.warning(
+                    "[RiskManager] Startup reconcile check failed for %s: %s — leaving active.",
+                    symbol, exc,
+                )
+
     def open_position_count(self) -> int:
-        return len(self._positions)
+        return sum(1 for p in self._positions.values() if p.status == "active")
 
     # ------------------------------------------------------------------ #
     #  OCO exchange-side order management                                  #
@@ -656,36 +745,56 @@ class RiskManager:
 
     def cancel_oco_for_position(self, symbol: str, api: Any) -> bool:
         """
-        Cancel any live bracket orders (TP limit + SL stop-limit) for the
-        position and clear both stored order IDs.
+        Cancel any live bracket orders (TP limit + SL stop-limit) for the position.
 
-        Returns True when there is nothing to cancel or both cancels succeed.
-        Returns False only when a cancel call fails (IDs are still cleared so
-        we never attempt to cancel a stale order on the next call).
+        IDs are cleared only when cancellation is confirmed (success response) or
+        when the exchange reports the order is already gone (code -2011 / "unknown
+        order").  On a genuine transport / auth failure the ID is kept so the next
+        loop iteration can retry.
+
+        Returns True  — nothing to cancel, or all cancels confirmed.
+        Returns False — at least one cancel failed with a non-"already gone" error.
+                        Caller MUST NOT send a market sell when False is returned with
+                        active IDs, to prevent double-execution.
         """
         pos = self._positions.get(symbol)
         if pos is None:
             return True
 
         all_ok = True
-        for order_id, label in ((pos.tp_order_id, "TP"), (pos.sl_order_id, "SL")):
+        for attr, label in (("tp_order_id", "TP"), ("sl_order_id", "SL")):
+            order_id = getattr(pos, attr)
             if not order_id:
                 continue
             try:
                 api.cancel_order(symbol, order_id)
-                log.info("[Bracket] Cancelled %s order for %s (orderId=%s)", label, symbol, order_id)
-            except Exception as exc:
-                log.warning(
-                    "[Bracket] Cancel %s order failed for %s (orderId=%s): %s",
-                    label, symbol, order_id, exc,
+                log.info(
+                    "[Bracket] Cancelled %s order for %s (orderId=%s)",
+                    label, symbol, order_id,
                 )
-                all_ok = False
+                setattr(pos, attr, "")  # clear only on confirmed success
+            except Exception as exc:
+                err_code = getattr(exc, "code", None)
+                err_msg  = str(exc).lower()
+                if err_code == -2011 or "unknown order" in err_msg:
+                    # Order already filled or cancelled on exchange — safe to clear
+                    log.info(
+                        "[Bracket] %s order already gone for %s (orderId=%s code=%s) — clearing.",
+                        label, symbol, order_id, err_code,
+                    )
+                    setattr(pos, attr, "")
+                else:
+                    log.warning(
+                        "[Bracket] Cancel %s order failed for %s (orderId=%s): %s "
+                        "— keeping ID, will retry.",
+                        label, symbol, order_id, exc,
+                    )
+                    all_ok = False
 
-        # Always clear IDs — don't retry stale orders next call
-        pos.tp_order_id  = ""
-        pos.sl_order_id  = ""
-        pos.oco_tp_price = 0.0
-        pos.oco_sl_price = 0.0
+        # Only zero the price tracking fields when both IDs are confirmed cleared
+        if not pos.tp_order_id and not pos.sl_order_id:
+            pos.oco_tp_price = 0.0
+            pos.oco_sl_price = 0.0
         self.save_positions()
         return all_ok
 
