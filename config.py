@@ -189,3 +189,7 @@ ORDER_BOOK_MAX_SPREAD_PCT = 0.003  # Maximum bid-ask spread as a ratio (0.003 = 
 # unchanged in dry-run mode.
 LIVE_TRADING: bool = os.getenv("LIVE_TRADING", "false").lower() == "true"
 DRY_RUN:      bool = not LIVE_TRADING
+
+# ── Setup Tracker ─────────────────────────────────────────────────────────── #
+SETUP_EXPIRY_HOURS        = 8    # Discard setup if zone never touched within N hours
+CONFIRMATION_EXPIRY_HOURS = 4    # Discard setup if 15M MSS not seen within N hours of zone entry

@@ -39,14 +39,16 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from config import (
+    CONFIRMATION_EXPIRY_HOURS,
     DAILY_LOSS_CAP_PCT,
     MAX_DAILY_TRADES,
     MAX_OPEN_POSITIONS,
     MAX_POSITION_PCT_OF_BALANCE,
     MAX_RISK_PER_TRADE_PCT,
+    SETUP_EXPIRY_HOURS,
     WEEKLY_LOSS_CAP_PCT,
 )
 
@@ -61,6 +63,15 @@ _CONSEC_REDUCE_AT = 2        # Start reducing size at this many consecutive loss
 _CONSEC_HALT_AT   = 4        # Halt ALL trading at this many consecutive losses
 _WIN_STREAK_BOOST_AT = 3     # Boost size after this many consecutive wins
 _MAX_WIN_RISK_PCT    = 0.015 # Hard cap on risk % after a win streak (1.5%)
+
+# ── SetupTracker constants ─────────────────────────────────────────────────── #
+_SETUPS_PATH              = Path(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH",
+                                str(Path(__file__).parent))) / "setups.json"
+_SETUP_EXPIRY_SECS        = SETUP_EXPIRY_HOURS * 3_600
+_CONFIRMATION_EXPIRY_SECS = CONFIRMATION_EXPIRY_HOURS * 3_600
+_SETUP_HISTORY_KEEP_SECS  = 86_400   # keep EXPIRED/INVALIDATED setups for audit (24H)
+_CONFIRMED_COOLDOWN_SECS  = 300      # post-CONFIRMED dedup window prevents same-tick duplicate
+                                     # creation and DRY_RUN re-confirmation loops
 
 
 # ------------------------------------------------------------------ #
@@ -132,6 +143,43 @@ class Position:
 
 
 # ------------------------------------------------------------------ #
+#  Setup dataclass                                                     #
+# ------------------------------------------------------------------ #
+
+@dataclass
+class Setup:
+    """
+    Tracks a detected SMC/ICT setup from identification through confirmation.
+
+    Status flow
+    -----------
+    IDENTIFIED  → zone not yet touched; expires after _SETUP_EXPIRY_SECS
+    ZONE_ENTERED→ price inside OB/FVG; confirmation watch active
+    CONFIRMED   → 15M MSS body-close received; entry authorised
+    EXPIRED     → timeout elapsed without progressing
+    INVALIDATED → structural condition breached before entry
+    """
+    symbol:                  str
+    status:                  str    # IDENTIFIED | ZONE_ENTERED | CONFIRMED | EXPIRED | INVALIDATED
+    zone_type:               str    # "FVG" | "OB" | "FVG+OB" | "SWEEP+..."
+    zone_high:               float  # = signal.entry_price  (top of OB/FVG zone)
+    zone_low:                float  # = signal.stop_loss    (bottom of OB/FVG zone)
+    invalidation_price:      float  # price must not CLOSE below this (= zone_low)
+    signal_score:            float  # 0.0 – 10.0 from signal generator
+    sl_price:                float  # hard SL for the eventual position
+    tp1:                     float
+    tp2:                     float
+    tp3:                     float
+    atr_at_detect:           float  # ATR(14) at creation time (used for trail calc later)
+    detected_at:             float  # time.time() at creation
+    zone_entered_at:         float  # 0.0 until price first touches the zone
+    confirmed_at:            float  # 0.0 until 15M MSS confirmation fires
+    expires_at:              float  # detected_at + _SETUP_EXPIRY_SECS
+    confirmation_expires_at: float  # 0.0 until zone entered; then zone_entered_at + _CONFIRMATION_EXPIRY_SECS
+    invalidation_reason:     str    # "" until EXPIRED or INVALIDATED
+
+
+# ------------------------------------------------------------------ #
 #  Serialisation helpers                                               #
 # ------------------------------------------------------------------ #
 
@@ -190,6 +238,52 @@ def _pos_from_dict(d: dict) -> Position:
         oco_tp_price      = float(d.get("oco_tp_price", 0)),
         oco_sl_price      = float(d.get("oco_sl_price", 0)),
         status            = d.get("status", "active"),
+    )
+
+
+def _setup_to_dict(s: Setup) -> dict:
+    return {
+        "symbol":                  s.symbol,
+        "status":                  s.status,
+        "zone_type":               s.zone_type,
+        "zone_high":               s.zone_high,
+        "zone_low":                s.zone_low,
+        "invalidation_price":      s.invalidation_price,
+        "signal_score":            s.signal_score,
+        "sl_price":                s.sl_price,
+        "tp1":                     s.tp1,
+        "tp2":                     s.tp2,
+        "tp3":                     s.tp3,
+        "atr_at_detect":           s.atr_at_detect,
+        "detected_at":             s.detected_at,
+        "zone_entered_at":         s.zone_entered_at,
+        "confirmed_at":            s.confirmed_at,
+        "expires_at":              s.expires_at,
+        "confirmation_expires_at": s.confirmation_expires_at,
+        "invalidation_reason":     s.invalidation_reason,
+    }
+
+
+def _setup_from_dict(d: dict) -> Setup:
+    return Setup(
+        symbol                  = d["symbol"],
+        status                  = d.get("status", "IDENTIFIED"),
+        zone_type               = d.get("zone_type", ""),
+        zone_high               = float(d.get("zone_high", 0)),
+        zone_low                = float(d.get("zone_low", 0)),
+        invalidation_price      = float(d.get("invalidation_price", 0)),
+        signal_score            = float(d.get("signal_score", 0)),
+        sl_price                = float(d.get("sl_price", 0)),
+        tp1                     = float(d.get("tp1", 0)),
+        tp2                     = float(d.get("tp2", 0)),
+        tp3                     = float(d.get("tp3", 0)),
+        atr_at_detect           = float(d.get("atr_at_detect", 0)),
+        detected_at             = float(d.get("detected_at", 0)),
+        zone_entered_at         = float(d.get("zone_entered_at", 0)),
+        confirmed_at            = float(d.get("confirmed_at", 0)),
+        expires_at              = float(d.get("expires_at", 0)),
+        confirmation_expires_at = float(d.get("confirmation_expires_at", 0)),
+        invalidation_reason     = d.get("invalidation_reason", ""),
     )
 
 
@@ -950,3 +1044,223 @@ class RiskManager:
             return "TAKE_PROFIT"
 
         return None
+
+
+# ------------------------------------------------------------------ #
+#  SetupTracker                                                        #
+# ------------------------------------------------------------------ #
+
+class SetupTracker:
+    """
+    Persists and manages SMC/ICT setup lifecycle state.
+
+    One active setup per symbol is enforced.  Persistence uses an atomic
+    write (temp file + os.replace) so a process kill mid-write never
+    corrupts setups.json.  Terminal setups are pruned after 24H on save.
+
+    Stage 1 — infrastructure only.
+    Lifecycle transitions (_monitor_setups) wired in Stage 3.
+    Entry scan replacement wired in Stage 4.
+    """
+
+    def __init__(self) -> None:
+        self._setups: List[Setup] = []
+        self.load()
+
+    # ------------------------------------------------------------------ #
+    #  Persistence                                                         #
+    # ------------------------------------------------------------------ #
+
+    def load(self) -> None:
+        """Load setups from disk.  Missing file or parse error → start fresh."""
+        if not _SETUPS_PATH.exists():
+            self._setups = []
+            return
+        try:
+            raw = json.loads(_SETUPS_PATH.read_text(encoding="utf-8"))
+            now = time.time()
+            cutoff = now - _SETUP_HISTORY_KEEP_SECS
+            self._setups = [
+                _setup_from_dict(d)
+                for d in raw.get("setups", [])
+                # Always keep active setups; keep recent terminal ones for audit
+                if d.get("status") in ("IDENTIFIED", "ZONE_ENTERED")
+                or float(d.get("detected_at", 0)) > cutoff
+            ]
+            active_count = sum(
+                1 for s in self._setups
+                if s.status in ("IDENTIFIED", "ZONE_ENTERED")
+            )
+            log.info(
+                "[SetupTracker] Loaded %d setup(s) from disk (%d active).",
+                len(self._setups), active_count,
+            )
+        except Exception as exc:
+            log.warning(
+                "[SetupTracker] Could not load setups.json — starting fresh: %s", exc,
+            )
+            self._setups = []
+
+    def save(self) -> None:
+        """
+        Persist setups atomically via temp-file + os.replace.
+
+        Prunes terminal setups older than _SETUP_HISTORY_KEEP_SECS before writing
+        so both the in-memory list and the file stay bounded during long uptime.
+        """
+        now = time.time()
+        cutoff = now - _SETUP_HISTORY_KEEP_SECS
+        self._setups = [
+            s for s in self._setups
+            if s.status in ("IDENTIFIED", "ZONE_ENTERED")
+            or s.detected_at > cutoff
+        ]
+        payload = {
+            "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "setups":   [_setup_to_dict(s) for s in self._setups],
+        }
+        tmp_path = _SETUPS_PATH.with_suffix(".tmp")
+        try:
+            _SETUPS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, _SETUPS_PATH)
+        except Exception as exc:
+            log.error("[SetupTracker] Failed to save setups.json: %s", exc)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------ #
+    #  Queries                                                             #
+    # ------------------------------------------------------------------ #
+
+    def get_active(self, symbol: str) -> Optional[Setup]:
+        """Return the IDENTIFIED or ZONE_ENTERED setup for symbol, or None."""
+        for s in self._setups:
+            if s.symbol == symbol and s.status in ("IDENTIFIED", "ZONE_ENTERED"):
+                return s
+        return None
+
+    def has_active(self, symbol: str) -> bool:
+        """
+        Returns True if symbol has an active setup OR was recently confirmed.
+
+        The CONFIRMED cooldown window (_CONFIRMED_COOLDOWN_SECS = 5 min) prevents:
+          - Same-tick duplicate creation after a setup confirms.
+          - DRY_RUN re-confirmation loops (no position is opened, so without
+            this check the entry scan would immediately re-detect the same zone).
+        """
+        now = time.time()
+        for s in self._setups:
+            if s.symbol != symbol:
+                continue
+            if s.status in ("IDENTIFIED", "ZONE_ENTERED"):
+                return True
+            if (s.status == "CONFIRMED"
+                    and s.confirmed_at > 0
+                    and now - s.confirmed_at < _CONFIRMED_COOLDOWN_SECS):
+                return True
+        return False
+
+    def active_setups(self) -> List[Setup]:
+        """Return all setups currently in IDENTIFIED or ZONE_ENTERED state."""
+        return [s for s in self._setups if s.status in ("IDENTIFIED", "ZONE_ENTERED")]
+
+    # ------------------------------------------------------------------ #
+    #  Mutations                                                           #
+    # ------------------------------------------------------------------ #
+
+    def create(
+        self,
+        symbol:        str,
+        zone_type:     str,
+        zone_high:     float,
+        zone_low:      float,
+        sl_price:      float,
+        tp1:           float,
+        tp2:           float,
+        tp3:           float,
+        signal_score:  float,
+        atr_at_detect: float,
+    ) -> Setup:
+        """
+        Create a new IDENTIFIED setup and persist it.
+        Caller must verify has_active(symbol) == False before calling.
+        """
+        now = time.time()
+        setup = Setup(
+            symbol                  = symbol,
+            status                  = "IDENTIFIED",
+            zone_type               = zone_type,
+            zone_high               = zone_high,
+            zone_low                = zone_low,
+            invalidation_price      = zone_low,
+            signal_score            = signal_score,
+            sl_price                = sl_price,
+            tp1                     = tp1,
+            tp2                     = tp2,
+            tp3                     = tp3,
+            atr_at_detect           = atr_at_detect,
+            detected_at             = now,
+            zone_entered_at         = 0.0,
+            confirmed_at            = 0.0,
+            expires_at              = now + _SETUP_EXPIRY_SECS,
+            confirmation_expires_at = 0.0,
+            invalidation_reason     = "",
+        )
+        self._setups.append(setup)
+        self.save()
+        return setup
+
+    def transition(self, symbol: str, new_status: str, reason: str = "") -> None:
+        """
+        Advance an active setup to new_status and persist.
+
+        Side-effects by target status:
+          ZONE_ENTERED → sets zone_entered_at and confirmation_expires_at
+          CONFIRMED    → sets confirmed_at (enables has_active() cooldown)
+        No-op if no active (IDENTIFIED or ZONE_ENTERED) setup exists for symbol.
+        """
+        setup = self.get_active(symbol)
+        if setup is None:
+            return
+        old_status = setup.status
+        setup.status = new_status
+        setup.invalidation_reason = reason
+
+        if new_status == "ZONE_ENTERED":
+            now = time.time()
+            setup.zone_entered_at         = now
+            setup.confirmation_expires_at = now + _CONFIRMATION_EXPIRY_SECS
+
+        if new_status == "CONFIRMED":
+            setup.confirmed_at = time.time()
+
+        self.save()
+        log.info(
+            "[SetupTracker] [%s] %s → %s%s",
+            symbol, old_status, new_status,
+            f" ({reason})" if reason else "",
+        )
+
+    def invalidate_for_unknown_symbols(self, valid_symbols: set) -> None:
+        """
+        Called at startup inside the existing validate_positions() try block.
+        Invalidates any active setup whose symbol is absent from the current
+        MEXC listing.  Reuses the valid_symbols set already fetched for
+        risk_mgr.validate_positions() — no additional API call required.
+        """
+        for setup in self.active_setups():
+            if setup.symbol not in valid_symbols:
+                self.transition(
+                    setup.symbol,
+                    "INVALIDATED",
+                    "symbol_not_on_mexc_at_startup",
+                )
+                log.warning(
+                    "[SetupTracker] [%s] Setup invalidated at startup: "
+                    "symbol not in current MEXC listing.",
+                    setup.symbol,
+                )
