@@ -22,7 +22,7 @@ import config
 from coin_selector import CoinSelector
 from market_context import MarketContextPoller
 from mexc_api import MEXCAPIError, MEXCSpotAPI
-from risk_manager import Position, RiskManager
+from risk_manager import Position, RiskManager, SetupTracker
 from filters import check_atr_filter, check_correlation_guard, check_global_market, check_order_book
 from strategy import TradeSignal, candles_to_df, detect_kill_zone, detect_market_structure, generate_signal
 from ws_price_feed import WSPriceFeed
@@ -92,6 +92,176 @@ def _compute_rsi(klines: list, period: int = 14) -> float:
         return 100.0
     rs = avg_gain / avg_loss
     return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
+# ------------------------------------------------------------------ #
+#  Setup lifecycle helpers (Stage 2 — defined, not yet called)        #
+# ------------------------------------------------------------------ #
+
+def _check_confirmation(symbol: str, api: MEXCSpotAPI) -> bool:
+    """
+    Simplified 15M MSS confirmation gate.
+
+    Returns True when the most recently *closed* 15M candle is bullish
+    AND its close exceeds the highest high of the prior three closed
+    candles.  This is a structural higher-high on the trigger timeframe,
+    indicating institutional defence of the OB/FVG zone.
+
+    Uses the last 8 candles so [:-1] reliably excludes the forming bar.
+    Fails silently (returns False) on any API or data error.
+    """
+    try:
+        klines = api.get_klines(symbol, "15m", 8)
+        if len(klines) < 5:
+            return False
+        closed      = klines[:-1]                              # drop the currently-forming candle
+        prior_highs = [float(c[2]) for c in closed[-4:-1]]    # high of the 3 candles before last
+        last        = closed[-1]
+        close       = float(last[4])
+        open_       = float(last[1])
+        return close > open_ and close > max(prior_highs)
+    except Exception as exc:
+        log.debug("[%s] _check_confirmation failed: %s", symbol, exc)
+        return False
+
+
+def _monitor_setups(
+    setup_tracker: SetupTracker,
+    api: MEXCSpotAPI,
+    risk_mgr: RiskManager,
+    ws_feed: WSPriceFeed,
+    sym_info_resolver,      # Callable[[str], Optional[dict]] — the _ensure_sym_info closure
+    active_pairs: list,     # current coin-selector universe (SYM-1 invalidation guard)
+    balance: float,
+) -> None:
+    """
+    Advance every active setup through its lifecycle.  Called once per main-loop tick.
+
+    Stage 2 — function is defined here but NOT yet called.
+    It is wired into run() in Stage 3.
+
+    Transition map
+    --------------
+    IDENTIFIED  → ZONE_ENTERED  : price enters [zone_low, zone_high]
+    ZONE_ENTERED → CONFIRMED    : _check_confirmation() passes all gates (live mode)
+    ZONE_ENTERED → CONFIRMED    : DRY_RUN simulated — no order placed
+    *           → EXPIRED       : 8H setup timeout / 4H confirmation timeout /
+                                  position limit reached at confirmation time
+    *           → INVALIDATED   : price < invalidation_price /
+                                  symbol dropped from active universe /
+                                  symbol info unavailable at confirmation time
+    """
+    now = time.time()
+
+    for setup in setup_tracker.active_setups():
+        symbol = setup.symbol
+
+        # ── Guard: active position already exists for this symbol ─────────── #
+        existing = risk_mgr.get_position(symbol)
+        if existing is not None and existing.status == "active":
+            setup_tracker.transition(symbol, "EXPIRED", "position_already_open")
+            continue
+
+        current_price = ws_feed.get_price(symbol)
+        if not current_price or current_price <= 0:
+            continue   # no live price — skip this tick, try again next cycle
+
+        # ── 1. Setup-level expiry (8H clock) ──────────────────────────────── #
+        if now > setup.expires_at:
+            setup_tracker.transition(symbol, "EXPIRED", "setup_8h_timeout")
+            log.info("[%s] Setup expired: zone not entered within 8H.", symbol)
+            continue
+
+        # ── 2. Structural invalidation (price below OB/FVG boundary) ─────── #
+        if current_price < setup.invalidation_price:
+            setup_tracker.transition(
+                symbol, "INVALIDATED",
+                f"price_{current_price:.6f}_below_zone_{setup.invalidation_price:.6f}",
+            )
+            log.info(
+                "[%s] Setup invalidated: price %.6f < zone_low %.6f",
+                symbol, current_price, setup.invalidation_price,
+            )
+            continue
+
+        # ── 3. IDENTIFIED: universe guard + zone entry check ──────────────── #
+        if setup.status == "IDENTIFIED":
+            if symbol not in active_pairs:
+                setup_tracker.transition(symbol, "INVALIDATED", "symbol_removed_from_universe")
+                log.info("[%s] Setup invalidated: symbol removed from active universe.", symbol)
+                continue
+            if setup.zone_low <= current_price <= setup.zone_high:
+                setup_tracker.transition(symbol, "ZONE_ENTERED", "price_in_zone")
+                log.info(
+                    "[%s] Setup ZONE_ENTERED @ %.6f (zone %.6f-%.6f)",
+                    symbol, current_price, setup.zone_low, setup.zone_high,
+                )
+            continue   # wait for next tick regardless of whether we just transitioned
+
+        # ── 4. ZONE_ENTERED: universe guard + confirmation expiry + 15M MSS ─ #
+        if setup.status != "ZONE_ENTERED":
+            continue   # defensive: ignore any unexpected status value
+
+        if symbol not in active_pairs:
+            setup_tracker.transition(symbol, "INVALIDATED", "symbol_removed_from_universe")
+            log.info("[%s] Setup invalidated: symbol removed from active universe.", symbol)
+            continue
+
+        if now > setup.confirmation_expires_at:
+            setup_tracker.transition(symbol, "EXPIRED", "confirmation_4h_timeout")
+            log.info(
+                "[%s] Setup confirmation expired: no 15M MSS within 4H of zone entry.",
+                symbol,
+            )
+            continue
+
+        if not _check_confirmation(symbol, api):
+            continue   # 15M MSS not yet formed — wait next tick
+
+        # ── Confirmation received — check gates before committing ─────────── #
+        # DRY_RUN: log the simulated confirm, transition for cooldown, no order.
+        if config.DRY_RUN:
+            setup_tracker.transition(symbol, "CONFIRMED", "dry_run_simulated")
+            log.info(
+                "[DRY-RUN] [%s] Setup confirmed — entry simulated "
+                "(zone=%.6f-%.6f score=%.1f type=%s). No order placed.",
+                symbol, setup.zone_low, setup.zone_high,
+                setup.signal_score, setup.zone_type,
+            )
+            continue
+
+        # Position-limit gate checked BEFORE transitioning to CONFIRMED so that
+        # a limit-blocked setup uses EXPIRED (not CONFIRMED) in the audit log.
+        if not risk_mgr.can_open_position(symbol):
+            setup_tracker.transition(symbol, "EXPIRED", "position_limit_at_confirm")
+            log.info("[%s] Setup confirmed but position limit reached — discarded.", symbol)
+            continue
+
+        si = sym_info_resolver(symbol)
+        if si is None:
+            setup_tracker.transition(symbol, "INVALIDATED", "symbol_info_unavailable")
+            log.warning("[%s] Setup confirmed but symbol info unavailable — invalidated.", symbol)
+            continue
+
+        # All gates passed — commit status and attempt entry via existing logic.
+        setup_tracker.transition(symbol, "CONFIRMED", "15m_mss_body_close")
+        synthetic_signal = TradeSignal(
+            symbol      = symbol,
+            side        = "BUY",
+            entry_price = setup.zone_high,
+            stop_loss   = setup.sl_price,
+            take_profit = setup.tp1,       # backward-compat required field
+            zone_type   = setup.zone_type,
+            strength    = round(setup.signal_score / 10.0, 3),  # required field
+            score       = setup.signal_score,
+            tp1         = setup.tp1,
+            tp2         = setup.tp2,
+            tp3         = setup.tp3,
+            kill_zone   = None,
+            reason      = "setup_confirmed",
+            atr         = setup.atr_at_detect,
+        )
+        _handle_entry(synthetic_signal, balance, si, api, risk_mgr)
 
 
 def _check_advanced_exits(
