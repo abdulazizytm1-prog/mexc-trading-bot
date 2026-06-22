@@ -606,6 +606,7 @@ def run(
     coin_selector: CoinSelector,
     market_ctx: MarketContextPoller,
     ws_feed: WSPriceFeed,
+    setup_tracker: SetupTracker,
 ) -> None:
     # Fetch opening balance and set the daily reference
     try:
@@ -669,6 +670,19 @@ def run(
                 log.error("Balance fetch failed: %s", exc)
                 time.sleep(config.LOOP_INTERVAL_SECONDS)
                 continue
+
+            # -------------------------------------------------------- #
+            #  0. Monitor pending setups                                #
+            # -------------------------------------------------------- #
+            _monitor_setups(
+                setup_tracker,
+                api,
+                risk_mgr,
+                ws_feed,
+                _ensure_sym_info,
+                active_pairs,
+                balance,
+            )
 
             # -------------------------------------------------------- #
             #  1. Check ACTIVE positions for exit + trail update        #
@@ -944,16 +958,18 @@ def main() -> None:
         )
 
     risk_mgr      = RiskManager()
+    setup_tracker = SetupTracker()
     coin_selector = CoinSelector(api)
 
     log.info("Building initial pair list (Coinranking + MEXC cross-reference)…")
     initial_pairs = coin_selector.get_pairs()
     log.info("Trading universe (%d pairs): %s", len(initial_pairs), initial_pairs)
 
-    # ── PATCH 2: Validate persisted positions against current MEXC symbol list ──
+    # ── PATCH 2: Validate persisted positions and setups against current MEXC symbol list ──
     try:
         valid_mexc_symbols = api.get_all_usdt_spot_symbols()
         risk_mgr.validate_positions(valid_mexc_symbols)
+        setup_tracker.invalidate_for_unknown_symbols(valid_mexc_symbols)
     except Exception as exc:
         log.warning("Startup symbol validation skipped (MEXC fetch failed): %s", exc)
 
@@ -977,7 +993,7 @@ def main() -> None:
     ws_feed = WSPriceFeed(uuid_map)
     ws_feed.start()
 
-    run(api, risk_mgr, coin_selector, market_ctx, ws_feed)
+    run(api, risk_mgr, coin_selector, market_ctx, ws_feed, setup_tracker)
 
 
 if __name__ == "__main__":
